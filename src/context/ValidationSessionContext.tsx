@@ -24,9 +24,10 @@ import {
   type SheetValidationIssue,
 } from '@/services/excel'
 import { readRulesFile } from '@/services/rules'
-import { buildColumnMapping, applyRememberedColumnMappings, updateMappingEntry, acceptSuggestion, buildRuleSet, toSerializedRuleFile, fromSerializedRuleFile } from '@/engine'
+import { buildColumnMapping, applyRememberedColumnMappings, updateMappingEntry, acceptSuggestion, buildRuleSet, toSerializedRuleFile, fromSerializedRuleFile, buildAutoDispositions, buildAutoComments } from '@/engine'
 import { nextRuleDefinitionId, nextExcelFileId } from '@/utils/id'
 import { useSavedRules } from '@/hooks/useSavedRules'
+import { useLocalStorage } from '@/hooks/useLocalStorage'
 
 /**
  * One uploaded Excel file's own raw state: its File/WorkBook/meta (read
@@ -112,6 +113,13 @@ export interface ValidationSessionValue {
   // comment clears the entry, mirroring setDisposition(..., null).
   comments: Map<string, Map<string, string>>
   setComment: (ruleDefinitionId: string, groupId: string, comment: string) => void
+
+  // The reviewer's own full name - persisted across sessions (unlike
+  // everything above), set once from the app shell. Drives the initials in
+  // every auto-filled comment (see AutoComment.ts); blank until the reviewer
+  // sets it, in which case no comment is auto-filled at all.
+  reviewerName: string
+  setReviewerName: (name: string) => void
 
   // Maps a loaded rule definition to the History entry its current result
   // was recorded as (see NewValidation.tsx, which creates the entry and
@@ -252,6 +260,7 @@ function anchorHeaders(files: ExcelFileEntry[], excludingId?: string): string[] 
 }
 
 const LAST_ACTIVE_RULES_KEY = 'duplicate-validator:last-active-rules'
+const REVIEWER_NAME_KEY = 'duplicate-validator:reviewer-name'
 
 /**
  * A silent, invisible mirror of "whatever rule definitions are currently
@@ -327,6 +336,17 @@ export function ValidationSessionProvider({ children }: { children: ReactNode })
   const { savedRules, saveRuleToLibrary, deleteSavedRule, saveRuleFromDefinition, rememberColumnMapping, setBlankOverride } =
     useSavedRules()
 
+  // The reviewer's own full name, persisted across sessions/page loads (set
+  // once in the app shell, not per-run) - the only piece of state this app
+  // keeps about who is using it. Used solely to derive initials for
+  // buildAutoComments; never sent anywhere, never shown to anyone else.
+  const [reviewerName, setReviewerName] = useLocalStorage<string>(REVIEWER_NAME_KEY, '')
+  // Same reasoning as ruleDefinitionsRef below - setValidationResults is a
+  // useCallback with an empty dependency array, so it reads the current
+  // reviewer name through this ref rather than closing over a stale one.
+  const reviewerNameRef = useRef(reviewerName)
+  reviewerNameRef.current = reviewerName
+
   // `addRulesFiles` does real async work (reading + parsing each file) before it can commit
   // its result, so a second call could otherwise start from a stale `ruleDefinitions`
   // snapshot and silently drop whatever the first call (or an interleaved
@@ -361,13 +381,21 @@ export function ValidationSessionProvider({ children }: { children: ReactNode })
 
   // The only way validationResults ever changes, internally or externally
   // (NewValidation.tsx calls this directly after a run completes) - always
-  // clears dispositions, comments, and the History-entry-id map alongside it
-  // so none of them can survive past the specific set of groups they were
-  // recorded against.
+  // clears the History-entry-id map alongside it so it can't survive past
+  // the specific set of groups it was recorded against. Dispositions and
+  // comments are instead re-seeded (not simply cleared) from each rule's own
+  // Analysis via buildAutoDispositions/buildAutoComments - see
+  // AutoDisposition.ts and AutoComment.ts - so a fresh run starts with
+  // "Potential Duplicate" rules pre-set to 'Carrier Review' and "True
+  // Duplicate" rules pre-set to 'Reject Shipment', plus (once a reviewer
+  // name is set) an auto-filled comment per flagged group. setDisposition
+  // and setComment's plain per-(ruleId, groupId) overwrites are untouched,
+  // so a reviewer can still change any of these afterward exactly as if
+  // they'd been picked/typed manually from the start.
   const setValidationResults = useCallback((results: RuleValidationOutcome[]) => {
     setValidationResultsState(results)
-    setDispositions(new Map())
-    setComments(new Map())
+    setDispositions(buildAutoDispositions(results, ruleDefinitionsRef.current))
+    setComments(buildAutoComments(results, ruleDefinitionsRef.current, reviewerNameRef.current, new Date()))
     setHistoryEntryIdByRule(new Map())
   }, [])
 
@@ -828,6 +856,8 @@ export function ValidationSessionProvider({ children }: { children: ReactNode })
       setDisposition,
       comments,
       setComment,
+      reviewerName,
+      setReviewerName,
       historyEntryIdByRule,
       registerHistoryEntryId,
       clearSession,
@@ -863,6 +893,8 @@ export function ValidationSessionProvider({ children }: { children: ReactNode })
       setDisposition,
       comments,
       setComment,
+      reviewerName,
+      setReviewerName,
       historyEntryIdByRule,
       registerHistoryEntryId,
       clearSession,

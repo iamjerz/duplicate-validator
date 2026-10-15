@@ -16,6 +16,7 @@ export interface RuleParseStructuralResult {
 const VALIDATION_KEY_PATTERN = /^validation$/i
 const LEVEL_KEY_PATTERN = /^level$/i
 const ANALYSIS_KEY_PATTERN = /^analysis$/i
+const COMMENT_REASON_KEY_PATTERN = /^commentreason$/i
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -35,8 +36,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  *  - Nested: { "level": "Invoice_level", "Analysis": "True Duplicate for
  *    denial", "Validation": { "Field Name": "SAME", ... } } - the field
  *    rules live inside a "Validation" object (matched case-insensitively);
- *    sibling text fields such as "level" and "Analysis" describe the rule
- *    set for the user but are never treated as fields themselves.
+ *    sibling text fields such as "level", "Analysis", and "CommentReason"
+ *    describe the rule set for the user but are never treated as fields
+ *    themselves.
  */
 export function parseRuleFile(input: unknown): RuleParseStructuralResult {
   if (!isPlainObject(input)) {
@@ -68,6 +70,7 @@ export function parseRuleFile(input: unknown): RuleParseStructuralResult {
       if (key === validationKey || typeof value !== 'string') continue
       if (LEVEL_KEY_PATTERN.test(key)) collected.level = value
       else if (ANALYSIS_KEY_PATTERN.test(key)) collected.analysis = value
+      else if (COMMENT_REASON_KEY_PATTERN.test(key)) collected.commentReason = value
       else (collected.extra ??= {})[key] = value
     }
     if (Object.keys(collected).length > 0) metadata = collected

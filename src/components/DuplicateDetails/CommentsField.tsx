@@ -12,8 +12,9 @@ export interface CommentsFieldProps {
  * A reviewer's free-text note for one duplicate group, under one rule -
  * rendered directly below DispositionSelect and sharing its lifecycle
  * exactly: session-only, never changes the group's computed Explanation or
- * classification, and is cleared alongside a fresh validation run (see
- * ValidationSessionContext's `comments`/`setComment`). Written into the
+ * classification, and re-seeded alongside a fresh validation run (see
+ * ValidationSessionContext's `comments`/`setComment` and
+ * buildAutoComments/AutoComment.ts) rather than left blank. Written into the
  * exported file's own "Add Comments" column where one exists - see
  * findAddCommentsColumn in buildExportWorkbook.
  */
@@ -34,8 +35,9 @@ export function CommentsField({ value, onChange }: CommentsFieldProps) {
         rows={3}
       />
       <p className="text-xs text-muted-foreground">
-        Your own free-text note for this group. It&apos;s kept only for this session, and is included as a column in
-        exports for any record with an Audit ID and an Audit Exception Status of Open.
+        Pre-filled as &quot;Initials: Date : Type : Reason&quot; once a Reviewer name is set in the header and the rule
+        has a configured reason - edit it freely. It&apos;s kept only for this session, and is included as a column
+        in exports for any record with an Audit ID and an Audit Exception Status of Open.
       </p>
     </div>
   )

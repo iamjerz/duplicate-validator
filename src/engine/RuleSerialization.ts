@@ -62,12 +62,15 @@ export function ruleFileToRawJson(fields: ParsedRuleField[], metadata?: RuleFile
   const validation: Record<string, string> = {}
   for (const { field, rule } of fields) validation[field] = rule
 
-  const hasMetadata = Boolean(metadata && (metadata.level || metadata.analysis || metadata.extra))
+  const hasMetadata = Boolean(
+    metadata && (metadata.level || metadata.analysis || metadata.commentReason || metadata.extra)
+  )
   if (!hasMetadata) return validation
 
   const out: RawRuleFileExport = {}
   if (metadata!.level) out.level = metadata!.level
   if (metadata!.analysis) out.Analysis = metadata!.analysis
+  if (metadata!.commentReason) out.CommentReason = metadata!.commentReason
   if (metadata!.extra) Object.assign(out, metadata!.extra)
   out.Validation = validation
   return out

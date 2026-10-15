@@ -65,6 +65,27 @@ describe('parseRuleFile - nested "Validation" format', () => {
     expect(result.metadata).toBeUndefined()
   })
 
+  it('captures a "CommentReason" sibling field as metadata.commentReason', () => {
+    const result = parseRuleFile({
+      level: 'Shipment_level',
+      Analysis: 'Potential Duplicate',
+      CommentReason: 'Same Tracking No., Service, and Charge; Different Invoice No., Lane, Ship Date, and Invoice Amount.',
+      Validation: { 'Root Id': 'SAME' },
+    })
+    expect(result.success).toBe(true)
+    expect(result.metadata).toEqual({
+      level: 'Shipment_level',
+      analysis: 'Potential Duplicate',
+      commentReason: 'Same Tracking No., Service, and Charge; Different Invoice No., Lane, Ship Date, and Invoice Amount.',
+    })
+  })
+
+  it('matches "CommentReason" case-insensitively', () => {
+    const result = parseRuleFile({ commentreason: 'Same Invoice No.', Validation: { 'Root Id': 'SAME' } })
+    expect(result.success).toBe(true)
+    expect(result.metadata).toEqual({ commentReason: 'Same Invoice No.' })
+  })
+
   it('preserves unrecognized sibling text fields under metadata.extra', () => {
     const result = parseRuleFile({
       Level: 'Invoice_level',

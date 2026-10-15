@@ -4,7 +4,7 @@ import type { RuleSet, RuleValue } from './rules'
 
 export type DuplicateStatus = 'DUPLICATE' | 'POTENTIAL_DUPLICATE' | 'UNIQUE' | 'VALIDATION_ERROR'
 
-export type BlankKind = 'null' | 'empty' | 'whitespace' | 'value'
+export type BlankKind = 'null' | 'empty' | 'whitespace' | 'placeholder' | 'value'
 
 export interface NormalizedValue {
   raw: CellValue
@@ -111,6 +111,7 @@ export interface RuleValidationOutcome {
    * result (Group Details, Record Comparison) should use this rather than
    * the rule definition's own original ruleSet, so the display never claims
    * a field was compared when it was actually excluded.
+   *
    */
   effectiveRuleSet: RuleSet
 }

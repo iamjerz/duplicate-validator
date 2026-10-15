@@ -105,11 +105,29 @@ function looksLikeDate(value: string): boolean {
   )
 }
 
+/**
+ * Many source systems (this app was built against freight-invoice audit
+ * exports) use a lone dash as their universal "no value here" token across
+ * every column type - string, date, or amount alike - rather than leaving
+ * the cell genuinely empty. A cell that is nothing but one or more dashes
+ * once trimmed (" -   ", "--") is exactly that convention, not a real
+ * value, so it is classified as blank the same as an empty or
+ * whitespace-only cell. This matters most for amount-style SAME fields that
+ * only carry a real figure while a record is in some active status (e.g.
+ * "Invoice Approved Amount" is blank-dashed whenever "Invoice Status" is
+ * VOID/CLOSED) - without this, a voided record and its still-open duplicate
+ * would be compared as the literal strings "-" vs "578.04" and never match,
+ * even though "-" was never meant to be a comparable value at all.
+ */
+const PLACEHOLDER_BLANK_PATTERN = /^-+$/
+
 function classifyBlank(raw: CellValue): BlankKind | null {
   if (raw === null || raw === undefined) return 'null'
   if (typeof raw === 'string') {
     if (raw.length === 0) return 'empty'
-    if (raw.trim().length === 0) return 'whitespace'
+    const trimmed = raw.trim()
+    if (trimmed.length === 0) return 'whitespace'
+    if (PLACEHOLDER_BLANK_PATTERN.test(trimmed)) return 'placeholder'
   }
   return null
 }

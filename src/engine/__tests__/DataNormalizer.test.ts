@@ -15,6 +15,18 @@ describe('normalizeValue - blanks', () => {
     expect(isBlank(normalizeValue('   '))).toBe(true)
     expect(isBlank(normalizeValue('x'))).toBe(false)
   })
+
+  it('treats a lone dash as blank (common "no value" placeholder in audit exports)', () => {
+    expect(normalizeValue('-').kind).toBe('placeholder')
+    expect(normalizeValue(' -   ').kind).toBe('placeholder')
+    expect(normalizeValue('--').kind).toBe('placeholder')
+    expect(isBlank(normalizeValue('-'))).toBe(true)
+  })
+
+  it('does not treat a real value that merely starts with a dash as blank', () => {
+    expect(normalizeValue('-500.00').kind).toBe('value')
+    expect(normalizeValue('-ABC').kind).toBe('value')
+  })
 })
 
 describe('normalizeValue - strings', () => {

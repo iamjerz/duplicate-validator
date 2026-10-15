@@ -72,3 +72,65 @@ describe('buildDuplicateGroups', () => {
     expect(result.groups.every((g) => g.rowIndices.length === 5)).toBe(true)
   })
 })
+
+describe('buildDuplicateGroups - chained "Root Id" references', () => {
+  // "Invoice Id" is UNIQUE here, mirroring the real rule files this app
+  // ships with - a record's "Root Id" may equal another record's own
+  // "Invoice Id" instead of the family's ultimate shared root.
+  const headers = ['Root Id', 'Invoice Number', 'Invoice Id']
+  const rules = {
+    'Root Id': 'SAME',
+    'Invoice Number': 'SAME',
+    'Invoice Id': 'UNIQUE',
+  }
+
+  it('joins a multi-hop chain into one group even though no two Root Id values are literally equal throughout', () => {
+    const { ruleSet, mapping } = setup(rules, headers)
+    const rows: CellValue[][] = [
+      ['ROOT-1', 'INV-1', 'ROOT-1'], // the root record - self-referencing
+      ['ROOT-1', 'INV-1', 'MID-2'], // points at the root directly
+      ['MID-2', 'INV-1', 'LEAF-3'], // points at the previous record, not the root
+    ]
+    const result = buildDuplicateGroups(headers, rows, ruleSet, mapping)
+    expect(result.validationErrorRows).toHaveLength(0)
+    expect(result.groups).toHaveLength(1)
+    expect(result.groups[0].rowIndices.sort()).toEqual([0, 1, 2])
+  })
+
+  it('still keeps unrelated invoices with coincidentally overlapping ids apart', () => {
+    const { ruleSet, mapping } = setup(rules, headers)
+    const rows: CellValue[][] = [
+      ['ROOT-1', 'INV-1', 'ROOT-1'],
+      ['ROOT-1', 'INV-1', 'MID-2'],
+      // Different Invoice Number entirely - must never merge with the family
+      // above even though its Root Id happens to equal MID-2.
+      ['MID-2', 'INV-999', 'LEAF-9'],
+    ]
+    const result = buildDuplicateGroups(headers, rows, ruleSet, mapping)
+    expect(result.groups.map((g) => g.rowIndices.length).sort()).toEqual([1, 2])
+  })
+
+  it('still groups an exact Root Id match with no chaining involved, same as before', () => {
+    const { ruleSet, mapping } = setup(rules, headers)
+    const rows: CellValue[][] = [
+      ['ROOT-1', 'INV-1', 'A-1'],
+      ['ROOT-1', 'INV-1', 'A-2'],
+    ]
+    const result = buildDuplicateGroups(headers, rows, ruleSet, mapping)
+    expect(result.groups).toHaveLength(1)
+    expect(result.groups[0].rowIndices.sort()).toEqual([0, 1])
+  })
+
+  it('still routes a blank Root Id to validationErrorRows rather than attempting to chain it', () => {
+    const { ruleSet, mapping } = setup(rules, headers)
+    const rows: CellValue[][] = [
+      ['ROOT-1', 'INV-1', 'A-1'],
+      ['', 'INV-1', 'A-2'],
+    ]
+    const result = buildDuplicateGroups(headers, rows, ruleSet, mapping)
+    expect(result.validationErrorRows).toHaveLength(1)
+    expect(result.validationErrorRows[0]).toMatchObject({ rowIndex: 1, blankFields: ['Root Id'] })
+    expect(result.groups).toHaveLength(1)
+    expect(result.groups[0].rowIndices).toEqual([0])
+  })
+})

@@ -139,6 +139,27 @@ describe('ruleFileToRawJson', () => {
     })
   })
 
+  it('includes CommentReason in the nested shape when present', () => {
+    const raw = ruleFileToRawJson(fields, { analysis: 'Potential Duplicate', commentReason: 'Same Invoice No.' })
+    expect(raw).toEqual({
+      Analysis: 'Potential Duplicate',
+      CommentReason: 'Same Invoice No.',
+      Validation: {
+        'Invoice Number': 'SAME',
+        'Audit ID': 'UNIQUE',
+        'Due Date': 'OPTIONAL',
+        Notes: 'N/A',
+      },
+    })
+  })
+
+  it('switches to the nested shape for a commentReason alone, even with no level/Analysis', () => {
+    const raw = ruleFileToRawJson(fields, { commentReason: 'Same Invoice No.' })
+    expect(raw).not.toBe(undefined)
+    expect((raw as Record<string, unknown>).CommentReason).toBe('Same Invoice No.')
+    expect((raw as Record<string, unknown>).Validation).toBeTruthy()
+  })
+
   it('carries any "extra" descriptive text fields through at the top level', () => {
     const raw = ruleFileToRawJson(fields, { level: 'Invoice_level', extra: { Owner: 'AP Team' } })
     expect(raw).toEqual({
@@ -168,7 +189,7 @@ describe('ruleFileToRawJson', () => {
   })
 
   it('round-trips through parseRuleFile back to the same fields and metadata, nested shape', () => {
-    const metadata = { level: 'Invoice_level', analysis: 'True Duplicate for denial' }
+    const metadata = { level: 'Invoice_level', analysis: 'True Duplicate for denial', commentReason: 'Same Invoice No.' }
     const raw = ruleFileToRawJson(fields, metadata)
     const parsed = parseRuleFile(raw)
     expect(parsed.success).toBe(true)

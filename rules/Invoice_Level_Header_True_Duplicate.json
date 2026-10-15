@@ -16,7 +16,7 @@
     "Carrier Comments": "N/A",
     "Aging By Due Dtm": "N/A",
     "Aging By Receipt Dtm": "N/A",
-    "Audit Exception Status": "UNIQUE",
+    "Audit Exception Status": "N/A",
     "Condition Type": "N/A",
     "Audit Condition": "N/A",
     "Client Code": "SAME",

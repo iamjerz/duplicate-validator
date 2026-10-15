@@ -50,9 +50,10 @@ export function DispositionSelect({ value, onChange }: DispositionSelectProps) {
         </SelectContent>
       </Select>
       <p className="text-xs text-muted-foreground">
-        Your own review note for this group. It doesn&apos;t change the explanation above, is kept only for this
-        session, and is included as a column in exports for any record with an Audit ID and an Audit Exception
-        Status of Open.
+        Pre-filled from the rule that flagged this group (Potential Duplicate rules default to &quot;Carrier
+        Review&quot;, True Duplicate rules default to &quot;Reject Shipment&quot;) - change it freely. It doesn&apos;t
+        change the explanation above, is kept only for this session, and is included as a column in exports for any
+        record with an Audit ID and an Audit Exception Status of Open.
       </p>
     </div>
   )

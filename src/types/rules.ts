@@ -47,6 +47,12 @@ export interface RuleSet {
 export interface RuleFileMetadata {
   level?: string
   analysis?: string
+  /**
+   * The fixed reason clause auto-filled comments use for every group this
+   * rule flags - e.g. "Same Tracking No., Invoice No., Shipping Details,
+   * Charge, and Invoice Amount." See AutoComment.ts.
+   */
+  commentReason?: string
   /** Any other descriptive top-level text fields the file included. */
   extra?: Record<string, string>
 }

@@ -24,6 +24,22 @@ export const duplicateGroupColumns: ColumnDef<DuplicateGroup>[] = [
     },
   },
   {
+    id: 'rootId',
+    header: 'Root Id',
+    // Only ever populated when the active rule marks "Root Id" as a SAME
+    // field - that's the only case where every record in the group is
+    // guaranteed to share one representative value. Rules that don't use
+    // this field (or treat it as UNIQUE/OPTIONAL) show a dash instead.
+    accessorFn: (g) => g.sameFieldValues['Root Id']?.display ?? '',
+    cell: (info) => <span className="font-mono text-xs">{info.getValue<string>() || '—'}</span>,
+  },
+  {
+    id: 'invoiceNumber',
+    header: 'Invoice Number',
+    accessorFn: (g) => g.sameFieldValues['Invoice Number']?.display ?? '',
+    cell: (info) => <span className="font-mono text-xs">{info.getValue<string>() || '—'}</span>,
+  },
+  {
     id: 'records',
     header: 'Records',
     accessorFn: (g) => g.records.length,
