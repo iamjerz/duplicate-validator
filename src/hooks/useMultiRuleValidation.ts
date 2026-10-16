@@ -81,6 +81,7 @@ export function useMultiRuleValidation(): UseMultiRuleValidationResult {
         ruleSet: next.ruleSet,
         mapping: dataset.mapping,
         analysis: next.metadata?.analysis,
+        level: next.metadata?.level,
       })
     } else {
       setIsRunning(false)
@@ -121,6 +122,7 @@ export function useMultiRuleValidation(): UseMultiRuleValidationResult {
       ruleSet: first.ruleSet,
       mapping: nextDataset.mapping,
       analysis: first.metadata?.analysis,
+      level: first.metadata?.level,
     })
   }
 

@@ -19,17 +19,21 @@ function zeroKpis(): KPISummary {
   }
 }
 
-function ruleDef(id: string, analysis: string | undefined): RuleDefinition {
+function ruleDef(id: string, analysis: string | undefined, level?: string): RuleDefinition {
   return {
     id,
     fileName: `${id}.json`,
     ruleSet: emptyRuleSet(),
-    metadata: analysis === undefined ? undefined : { analysis },
+    metadata: analysis === undefined && level === undefined ? undefined : { analysis, level },
     totalFields: 0,
   }
 }
 
-function groupFrom(id: string, status: DuplicateGroup['status']): DuplicateGroup {
+function groupFrom(
+  id: string,
+  status: DuplicateGroup['status'],
+  dispositionOverride: DuplicateGroup['dispositionOverride'] = null
+): DuplicateGroup {
   return {
     id,
     status,
@@ -41,6 +45,7 @@ function groupFrom(id: string, status: DuplicateGroup['status']): DuplicateGroup
     sameFieldValues: {},
     uniqueDifferences: [],
     optionalDifferences: [],
+    dispositionOverride,
     explanation: { lines: [], classification: status, summary: '' },
   }
 }
@@ -87,6 +92,27 @@ describe('deriveAutoDisposition', () => {
 
   it('prefers "True Duplicate" when a string somehow contains both phrases', () => {
     expect(deriveAutoDisposition('True Duplicate and also Potential Duplicate')).toBe('Reject Shipment')
+  })
+
+  it('names the level in a True-Duplicate rule\'s Reject disposition: Invoice/Shipment/Charge', () => {
+    expect(deriveAutoDisposition('True Duplicate for denial', 'Invoice_level')).toBe('Reject Invoice')
+    expect(deriveAutoDisposition('True Duplicate for denial', 'Shipment_level')).toBe('Reject Shipment')
+    expect(deriveAutoDisposition('True Duplicate for denial', 'Charge_level')).toBe('Reject Charge')
+  })
+
+  it('falls back to Reject Shipment for a missing or unrecognized level, same as before level-awareness existed', () => {
+    expect(deriveAutoDisposition('True Duplicate for denial', undefined)).toBe('Reject Shipment')
+    expect(deriveAutoDisposition('True Duplicate for denial', 'Something Else')).toBe('Reject Shipment')
+  })
+
+  it('matches level case/punctuation-insensitively', () => {
+    expect(deriveAutoDisposition('True Duplicate', 'INVOICE LEVEL')).toBe('Reject Invoice')
+    expect(deriveAutoDisposition('True Duplicate', 'charge-level')).toBe('Reject Charge')
+  })
+
+  it('a Potential-Duplicate rule always seeds Carrier Review regardless of level', () => {
+    expect(deriveAutoDisposition('Potential Duplicate', 'Invoice_level')).toBe('Carrier Review')
+    expect(deriveAutoDisposition('Potential Duplicate', 'Charge_level')).toBe('Carrier Review')
   })
 })
 
@@ -157,5 +183,30 @@ describe('buildAutoDispositions', () => {
     const groups = [groupFrom('DUP-1', 'DUPLICATE')]
     const result = buildAutoDispositions([outcomeFrom('missing-rule', groups)], [])
     expect(result.has('missing-rule')).toBe(false)
+  })
+
+  it('seeds Reject Invoice (not Reject Shipment) for a True-Duplicate rule at Invoice level', () => {
+    const def = ruleDef('rule-1', 'True Duplicate for denial', 'Invoice_level')
+    const groups = [groupFrom('DUP-1', 'DUPLICATE')]
+    const result = buildAutoDispositions([outcomeFrom('rule-1', groups)], [def])
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('Reject Invoice')
+  })
+
+  it("uses a group's own dispositionOverride instead of the rule's normal disposition when present", () => {
+    const def = ruleDef('rule-1', 'True Duplicate for denial', 'Invoice_level')
+    const groups = [
+      groupFrom('DUP-1', 'POTENTIAL_DUPLICATE', { disposition: 'Continue Processing', reason: 'Different Carrier.' }),
+      groupFrom('DUP-2', 'POTENTIAL_DUPLICATE'),
+    ]
+    const result = buildAutoDispositions([outcomeFrom('rule-1', groups)], [def])
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('Continue Processing')
+    expect(result.get('rule-1')?.get('DUP-2')).toBe('Reject Invoice')
+  })
+
+  it('still applies an override even for a rule with no recognized Analysis', () => {
+    const def = ruleDef('rule-1', 'Some custom rule')
+    const groups = [groupFrom('DUP-1', 'POTENTIAL_DUPLICATE', { disposition: 'Continue Processing', reason: 'x' })]
+    const result = buildAutoDispositions([outcomeFrom('rule-1', groups)], [def])
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('Continue Processing')
   })
 })

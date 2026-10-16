@@ -21,7 +21,7 @@ self.onmessage = (event: MessageEvent<ValidationWorkerRequest>) => {
   const request = event.data
   if (!request || request.type !== 'validate') return
 
-  const { requestId, headers, rows, excelRowNumbers, ruleSet, mapping, analysis } = request
+  const { requestId, headers, rows, excelRowNumbers, ruleSet, mapping, analysis, level } = request
 
   try {
     post({ type: 'progress', requestId, step: 'reading', percent: 5 })
@@ -36,6 +36,7 @@ self.onmessage = (event: MessageEvent<ValidationWorkerRequest>) => {
       ruleSet,
       mapping,
       analysis,
+      level,
       onProgress: (step, percent) => {
         const mapped: ProgressStepId =
           step === 'indexing' ? 'indexing' : step === 'grouping' ? 'grouping' : 'generating'

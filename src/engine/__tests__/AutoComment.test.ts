@@ -29,7 +29,11 @@ function ruleDef(id: string, metadata: RuleFileMetadata | undefined): RuleDefini
   }
 }
 
-function groupFrom(id: string, status: DuplicateGroup['status']): DuplicateGroup {
+function groupFrom(
+  id: string,
+  status: DuplicateGroup['status'],
+  dispositionOverride: DuplicateGroup['dispositionOverride'] = null
+): DuplicateGroup {
   return {
     id,
     status,
@@ -41,6 +45,7 @@ function groupFrom(id: string, status: DuplicateGroup['status']): DuplicateGroup
     sameFieldValues: {},
     uniqueDifferences: [],
     optionalDifferences: [],
+    dispositionOverride,
     explanation: { lines: [], classification: status, summary: '' },
   }
 }
@@ -192,6 +197,27 @@ describe('buildAutoComments', () => {
     const def = ruleDef('rule-1', { analysis: 'True Duplicate for denial', commentReason: 'Same Invoice No.' })
     const result = buildAutoComments([], [def], 'Juan Dela Cruz', OCT_16_2026)
     expect(result.size).toBe(0)
+  })
+
+  it("uses the group's own dispositionOverride reason, under the fixed \"Not Duplicate\" type label, instead of the rule's configured reason", () => {
+    const def = ruleDef('rule-1', { analysis: 'True Duplicate for denial', commentReason: 'Same Invoice No. and Invoice Amount.' })
+    const groups = [
+      groupFrom('DUP-1', 'POTENTIAL_DUPLICATE', {
+        disposition: 'Continue Processing',
+        reason: 'Different Account No., Carrier, and/or Invoice Amount.',
+      }),
+    ]
+    const result = buildAutoComments([outcomeFrom('rule-1', groups)], [def], 'Juan Dela Cruz', OCT_16_2026)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe(
+      'JDC: 101626 : Not Duplicate : Different Account No., Carrier, and/or Invoice Amount.'
+    )
+  })
+
+  it('still produces an override comment even for a rule with no commentReason/Analysis configured at all', () => {
+    const def = ruleDef('rule-1', undefined)
+    const groups = [groupFrom('DUP-1', 'POTENTIAL_DUPLICATE', { disposition: 'Continue Processing', reason: 'x' })]
+    const result = buildAutoComments([outcomeFrom('rule-1', groups)], [def], 'Juan Dela Cruz', OCT_16_2026)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('JDC: 101626 : Not Duplicate : x')
   })
 
   it('contributes no entry when the outcome references a rule definition that no longer exists', () => {

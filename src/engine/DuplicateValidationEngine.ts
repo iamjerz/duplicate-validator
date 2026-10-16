@@ -14,6 +14,7 @@ import { generateExplanation } from './ExplanationGenerator'
 import { buildColumnIndexByField } from './ColumnMapper'
 import { formatGroupId } from '@/utils/id'
 import { hasRunnableRuleSet } from './RuleValidator'
+import { computeDispositionOverride } from './DispositionOverride'
 
 export type EngineProgressStep = 'indexing' | 'grouping' | 'generating'
 export type EngineProgressCallback = (step: EngineProgressStep, percent: number) => void
@@ -26,6 +27,8 @@ export interface RunEngineInput {
   mapping: ColumnMappingEntry[]
   /** The uploaded rule's own description of what a match means (e.g. "True Duplicate for denial"). Drives the explanation text. */
   analysis?: string
+  /** The rule's own level text (e.g. "Invoice_level") - drives disposition-override detection. See DispositionOverride.ts. */
+  level?: string
   onProgress?: EngineProgressCallback
 }
 
@@ -40,7 +43,7 @@ export interface RunEngineInput {
  */
 export function runDuplicateValidation(input: RunEngineInput): ValidationResult {
   const start = typeof performance !== 'undefined' ? performance.now() : Date.now()
-  const { headers, rows, excelRowNumbers, ruleSet, mapping, analysis, onProgress } = input
+  const { headers, rows, excelRowNumbers, ruleSet, mapping, analysis, level, onProgress } = input
 
   if (!hasRunnableRuleSet(ruleSet)) {
     throw new Error('At least one field must be marked SAME before duplicate detection can run.')
@@ -88,10 +91,14 @@ export function runDuplicateValidation(input: RunEngineInput): ValidationResult 
       analysis,
     })
 
+    const records = raw.rowIndices.map((ri) => ({ rowIndex: ri, excelRowNumber: excelRowNumbers[ri] }))
+    const dispositionOverride =
+      classified.status === 'UNIQUE' ? null : computeDispositionOverride(records, headers, rows, mapping, level)
+
     groups.push({
       id: formatGroupId(sequence),
       status: classified.status,
-      records: raw.rowIndices.map((ri) => ({ rowIndex: ri, excelRowNumber: excelRowNumbers[ri] })),
+      records,
       matchedSameFields: classified.matchedSameFields,
       differentUniqueFields: classified.differentUniqueFields,
       differentOptionalFields: classified.differentOptionalFields,
@@ -99,6 +106,7 @@ export function runDuplicateValidation(input: RunEngineInput): ValidationResult 
       sameFieldValues: classified.sameFieldValues,
       uniqueDifferences: classified.uniqueDifferences,
       optionalDifferences: classified.optionalDifferences,
+      dispositionOverride,
       explanation,
     })
 

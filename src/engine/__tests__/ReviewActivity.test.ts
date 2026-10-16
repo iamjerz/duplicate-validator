@@ -14,6 +14,7 @@ function groupFrom(id: string, status: DuplicateGroup['status']): DuplicateGroup
     sameFieldValues: {},
     uniqueDifferences: [],
     optionalDifferences: [],
+    dispositionOverride: null,
     explanation: { lines: [], classification: status, summary: '' },
   }
 }

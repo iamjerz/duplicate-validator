@@ -38,11 +38,16 @@ export interface RuleSet {
 }
 
 /**
- * Descriptive, non-rule information that may accompany a rules JSON file
- * under the nested format (see RuleParser for the exact shape). This is
- * shown to the user for context only - it never affects duplicate
- * detection, which is driven entirely by the SAME/UNIQUE/OPTIONAL/N/A
- * values inside the "Validation" section.
+ * Descriptive information that may accompany a rules JSON file under the
+ * nested format (see RuleParser for the exact shape). `analysis` and
+ * `commentReason` are shown to the user for context only and never affect
+ * duplicate detection itself (grouping/classification is driven entirely by
+ * the SAME/UNIQUE/OPTIONAL/N/A values inside the "Validation" section).
+ * `level` is also shown for context, but - as of DispositionOverride.ts -
+ * is additionally used at disposition time to pick the right level-specific
+ * "Reject X" label and to decide which disposition-override rule applies;
+ * it still never changes grouping or DUPLICATE/POTENTIAL_DUPLICATE/UNIQUE
+ * classification.
  */
 export interface RuleFileMetadata {
   level?: string

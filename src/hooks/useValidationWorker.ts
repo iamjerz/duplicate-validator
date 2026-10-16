@@ -23,6 +23,8 @@ export interface RunValidationInput {
   mapping: ColumnMappingEntry[]
   /** The uploaded rule's own description of what a match means (e.g. "True Duplicate for denial"). */
   analysis?: string
+  /** The rule's own level text (e.g. "Invoice_level") - drives disposition-override detection. */
+  level?: string
 }
 
 export interface UseValidationWorkerResult {

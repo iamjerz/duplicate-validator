@@ -60,6 +60,20 @@ export interface DuplicateGroup {
   uniqueDifferences: FieldDifference[]
   optionalDifferences: FieldDifference[]
   explanation: Explanation
+  /**
+   * Set when DispositionOverride.ts finds this group isn't really a
+   * duplicate despite matching the rule's SAME fields (e.g. a coincidental
+   * Invoice Number collision with a different Carrier/Account). Null for
+   * every group where the rule's own disposition stands as-is - which is
+   * most of them. See AutoDisposition.ts/AutoComment.ts, which use this in
+   * place of the rule's normal auto-disposition/comment when present.
+   */
+  dispositionOverride: DispositionOverrideOutcome | null
+}
+
+export interface DispositionOverrideOutcome {
+  disposition: 'Continue Processing'
+  reason: string
 }
 
 export interface ValidationErrorEntry {

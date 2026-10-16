@@ -18,7 +18,33 @@ Grouping now follows that chain: two records are only ever considered for chaini
 
 A reviewer can record one Disposition per duplicate group, per rule (Carrier Review, Client Review, Continue Processing, Reject Charge, Reject Invoice, Reject Shipment, Trax Review) from the dropdown in the group's detail view. It's a session-local label only - it never changes a group's DUPLICATE/POTENTIAL_DUPLICATE/UNIQUE classification or any KPI count. At export time, any record whose Disposition is set, and that has a non-blank "Audit ID" and an "Audit Exception Status" of Open, gets its Disposition written into the file's own existing "Add Action" column.
 
-Every flagged group (DUPLICATE or POTENTIAL_DUPLICATE) is now pre-filled with a default Disposition the moment a validation run completes, based on which rule produced it: a rule whose Analysis is "Potential Duplicate" seeds `Carrier Review`, and a rule whose Analysis is "True Duplicate" (matched by substring, so "True Duplicate for denial" counts too) seeds `Reject Shipment`. A rule with no recognized Analysis, and UNIQUE groups under any rule, get no automatic Disposition. This is only a default - the dropdown still shows it as a normal selection, and picking a different option overwrites it exactly as if it had been manually set from the start. See `src/engine/AutoDisposition.ts`.
+Every flagged group (DUPLICATE or POTENTIAL_DUPLICATE) is now pre-filled with a default Disposition the moment a validation run completes, based on which rule produced it: a rule whose Analysis is "Potential Duplicate" seeds `Carrier Review`, and a rule whose Analysis is "True Duplicate" (matched by substring, so "True Duplicate for denial" counts too) seeds the level-appropriate rejection - `Reject Invoice`, `Reject Shipment`, or `Reject Charge` - read from the rule's own `"level"` field (e.g. `"Invoice_level"`); a rule with a missing or unrecognized level falls back to `Reject Shipment`. A rule with no recognized Analysis, and UNIQUE groups under any rule, get no automatic Disposition. This is only a default - the dropdown still shows it as a normal selection, and picking a different option overwrites it exactly as if it had been manually set from the start. See `src/engine/AutoDisposition.ts`.
+
+A group's default can be further downgraded to `Continue Processing` by a disposition override - see the next section.
+
+## Disposition overrides ("this isn't really a duplicate")
+
+A rule's SAME/UNIQUE fields can correctly cluster a group of records that, on closer inspection, isn't really the same invoice/shipment/charge - a coincidental Invoice Number collision between two unrelated clients, say. `src/engine/DispositionOverride.ts` catches the specific, evidence-backed patterns below and downgrades the default Disposition (and auto-Comment, under the fixed label "Not Duplicate") to `Continue Processing`. Every pattern here was reverse-engineered from a manually-reviewed ground-truth file (all three levels, 260 rows) rather than guessed at - and where the ground truth didn't show a clean, generalizable signal, the gap is disclosed below rather than papered over with a rule fitted to one or two examples.
+
+**Invoice and Shipment:**
+
+- A genuinely different Carrier Code anywhere in the group.
+- A genuinely different Invoice Account Number - but only when Client Code matches across the group. Account Number is frequently just Client Code's own prefix baked into the string (e.g. `ABVNDSVDEEUR` vs `ABVEDSVDEEUR` for the "ABVN"/"ABVE" client pair), so when Client Code already differs, an Account Number difference adds no independent signal.
+- **Shipment only:** a member whose own Audit Exception Status is "Open" carries an Audit Condition of exactly "Duplicate Shipment Different Charges" - a literal category the source system already assigns, 100% Continue Processing in the ground truth with zero exceptions. The superficially similar "Duplicate Shipment Different Lane" is deliberately *not* used this way - that label is a mix of real Carrier-Review cases and Continue-Processing cases, not a clean signal on its own. Audit Condition is only trusted on an Open record because the other side of a pair can carry its own, unrelated, already-resolved (CLOSED) Audit Condition that has nothing to do with the live case.
+
+**Charge:**
+
+- A member's Correction Indicator reads "CORRECTION" (case/whitespace-insensitive).
+- A reversing (credit) entry exists *elsewhere in the file* - not a member of this group - sharing the same Tracking Number and Charge Code but carrying the exact negated Charge Amount. This is the mechanical fingerprint of a void-and-rebill: the original charge gets reversed by a separate row under a different Invoice Number, then rebilled under a third Invoice Number reusing the original amount. Checked against the whole dataset (indexed once per validation run, not rescanned per group, so this stays fast on large files).
+
+**Known, disclosed gaps** (confirmed against the ground truth, not fixable from this file's own columns):
+
+- Invoice rows whose comment references a "Dup Reference Id" pointing at another submission's outcome ("Previous submission was REJECTED/VOIDED") - that prior submission's own resolution lives outside this file.
+- A single Invoice true-duplicate case resolved by the reviewer checking an external payment system (a specific check number and payment date) rather than anything visible in this file.
+- A handful of Shipment "Different Lane" cases that are still Continue Processing despite matching Carrier/Account and not being labeled "Different Charges" - the reviewer's comment cites a specific line-item charge code (e.g. "Address Correction (AAJ.007)") or an EDI segment code, neither of which generalizes cleanly from a couple of examples.
+- Charge "offset" cases where the referenced reversing invoice isn't actually present in this particular file extract (confirmed by its absence, not just unmatched) - the pattern above catches the same scenario whenever the reversing row *is* present.
+
+Against the full ground-truth file (`Manual Validation.xlsx`, 260 rows across all three levels, 110 of them flagged for review by the human reviewer), the current rules plus these overrides match 95 of those 110 flagged rows exactly (Invoice 44/49, Shipment 38/43, Charge 13/18); every remaining mismatch is one of the gaps listed above.
 
 ## Comments
 
@@ -29,7 +55,7 @@ Comments are auto-filled the same way Disposition is, following this client's ow
 - **Initials** come from the "Reviewer" field in the header (top right of every page) - a one-time setting, persisted in the browser, that any auditor using this app sets to their own full name (e.g. "Juan Dela Cruz"). Initials are the first letter of each word, uppercased (e.g. "JDC"). Until a reviewer name is set, no comment is auto-filled at all, for any rule.
 - **MMDDYY** is today's date (the date the group was validated), with no separators.
 - **Type** is "True Duplicate" or "Potential Duplicate", from the same Analysis matching AutoDisposition uses.
-- **Reason** is a fixed sentence configured per rule file, via a new recognized `"CommentReason"` field alongside `"level"` and `"Analysis"` in the rule's JSON (matched case-insensitively, exported back out through the Rules Library's "Export as JSON" action same as any other metadata). A rule with no `CommentReason` configured gets no auto-filled comment, same as a rule with no recognized Analysis. The four rule files this app ships with use their own client-confirmed or best-effort reason text - edit the `CommentReason` value directly in a rule's JSON (or re-upload a corrected copy) to change it.
+- **Reason** is a fixed sentence configured per rule file, via a new recognized `"CommentReason"` field alongside `"level"` and `"Analysis"` in the rule's JSON (matched case-insensitively, exported back out through the Rules Library's "Export as JSON" action same as any other metadata). A rule with no `CommentReason` configured gets no auto-filled comment, same as a rule with no recognized Analysis. The five rule files this app ships with (Invoice True/Potential, Shipment True/Potential, and Charge Potential - there's no evidenced True-Duplicate scenario at the Charge level) use their own client-confirmed or best-effort reason text - edit the `CommentReason` value directly in a rule's JSON (or re-upload a corrected copy) to change it.
 
 This is only a default - the text box is a normal, freely-editable field, and typing over it (e.g. to add case-specific detail like a payment confirmation or check number) overwrites it exactly as if it had been typed from scratch. See `src/engine/AutoComment.ts`.
 
