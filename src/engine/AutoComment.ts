@@ -1,10 +1,5 @@
 import type { DuplicateGroup, RuleDefinition, RuleValidationOutcome } from '@/types'
-import { classifyDuplicateType } from './DuplicateTypeClassification'
-
-const TYPE_LABELS = {
-  'true-duplicate': 'True Duplicate',
-  'potential-duplicate': 'Potential Duplicate',
-} as const
+import { classifyDuplicateType, DUPLICATE_TYPE_LABELS } from './DuplicateTypeClassification'
 
 const OVERRIDE_TYPE_LABEL = 'Not Duplicate'
 
@@ -136,7 +131,7 @@ export function buildAutoComments(
     const definition = ruleDefinitions.find((d) => d.id === outcome.ruleDefinitionId)
     const hasReasonConfigured = !!definition?.metadata?.commentReason?.trim()
     const classification = classifyDuplicateType(definition?.metadata?.analysis)
-    const ruleTypeLabel = classification ? TYPE_LABELS[classification] : null
+    const ruleTypeLabel = classification ? DUPLICATE_TYPE_LABELS[classification] : null
     const ruleEnabled = ruleTypeLabel !== null && hasReasonConfigured
 
     const forRule = new Map<string, string>()

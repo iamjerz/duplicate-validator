@@ -25,7 +25,7 @@ import type { DuplicateGroup, DuplicateStatus } from '@/types'
 import { useDebouncedValue } from '@/hooks'
 import { formatNumber } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
-import { duplicateGroupColumns } from './columns'
+import { buildDuplicateGroupColumns } from './columns'
 
 type FilterableStatus = Exclude<DuplicateStatus, 'VALIDATION_ERROR'>
 
@@ -39,6 +39,8 @@ export interface DuplicateTableProps {
   groups: DuplicateGroup[]
   onSelectGroup: (group: DuplicateGroup) => void
   selectedGroupId?: string | null
+  /** This rule's own resolved duplicate-type label - see resolveDuplicateTypeLabel. Shown in every flagged row's Status cell. */
+  ruleTypeLabel: string
 }
 
 /** A lowercased, searchable blob of the group's identifying values, built once per group. */
@@ -56,7 +58,7 @@ function buildHaystack(group: DuplicateGroup): string {
  * virtualized (only the visible slice is ever mounted) rather than paginated,
  * which keeps scrolling smooth without chunking the data into pages.
  */
-export function DuplicateTable({ groups, onSelectGroup, selectedGroupId }: DuplicateTableProps) {
+export function DuplicateTable({ groups, onSelectGroup, selectedGroupId, ruleTypeLabel }: DuplicateTableProps) {
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 200)
   const [statusFilter, setStatusFilter] = useState<Set<FilterableStatus>>(
@@ -80,9 +82,11 @@ export function DuplicateTable({ groups, onSelectGroup, selectedGroupId }: Dupli
     })
   }, [groups, statusFilter, debouncedSearch, haystacks])
 
+  const columns = useMemo(() => buildDuplicateGroupColumns(ruleTypeLabel), [ruleTypeLabel])
+
   const table = useReactTable({
     data: filteredGroups,
-    columns: duplicateGroupColumns,
+    columns,
     state: { sorting, columnVisibility },
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,

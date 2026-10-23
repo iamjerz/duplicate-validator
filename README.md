@@ -1,5 +1,9 @@
 # duplicate-validator
 
+## Status column (Results table)
+
+Each rule's Duplicate Groups table has a "Status" column. For a flagged (non-UNIQUE) group, this no longer shows the engine's own internal `DUPLICATE`/`POTENTIAL_DUPLICATE` labels - it shows that rule's own duplicate type instead: "True Duplicate" or "Potential Duplicate" when the rule's Analysis resolves to one of those (see `classifyDuplicateType`), or the rule's own uploaded file name when it doesn't (e.g. a rule with a custom Analysis string, or none at all) - the same fallback the Results page's tab titles already use when a rule has no recognized Analysis. The label is the same for every flagged row in one rule's tab, since it describes which rule/kind of match that whole tab represents, not a per-group computation - a "True Duplicate" rule can still produce individual groups where some UNIQUE field differs (those stay distinguishable via the "Different UNIQUE Fields" and "Explanation" columns, and the filter checkboxes above the table, which still use the raw Duplicate/Potential Duplicate/Unique distinction). A UNIQUE group is never a duplicate of any type, so it keeps a plain "Unique" label regardless of rule. The badge's color still follows the group's own actual status (red for an exact DUPLICATE match, amber for POTENTIAL_DUPLICATE, green for UNIQUE) - only the text changed. See `resolveDuplicateTypeLabel` in `src/engine/DuplicateTypeClassification.ts` and `src/components/DuplicateTable/columns.tsx`.
+
 ## Blank-looking placeholder values ("-")
 
 Some source systems (this app was built against freight-invoice audit exports) use a lone dash as their universal "no value" token in a cell - across string, date, and amount columns alike - instead of leaving the cell genuinely empty. A cell containing nothing but dashes once trimmed (`-`, `--`, `" -   "`) is now treated as blank, the same as an empty or whitespace-only cell.

@@ -9,64 +9,80 @@ export function statusBadgeVariant(status: DuplicateStatus): 'destructive' | 'wa
   return 'secondary'
 }
 
-export const duplicateGroupColumns: ColumnDef<DuplicateGroup>[] = [
-  {
-    accessorKey: 'id',
-    header: 'Group ID',
-    cell: (info) => <span className="font-mono text-xs">{info.getValue<string>()}</span>,
-  },
-  {
-    accessorKey: 'status',
-    header: 'Status',
-    cell: (info) => {
-      const status = info.getValue<DuplicateStatus>()
-      return <Badge variant={statusBadgeVariant(status)}>{status.replace('_', ' ')}</Badge>
+/**
+ * Builds the Results table's columns for one rule's tab. `ruleTypeLabel` is
+ * that rule's own resolved duplicate-type label (see
+ * resolveDuplicateTypeLabel in DuplicateTypeClassification.ts - "True
+ * Duplicate"/"Potential Duplicate" when the rule's Analysis resolves to a
+ * known type, otherwise the rule's own uploaded file name) - the same label
+ * for every flagged row in this table, since it describes which rule/kind of
+ * match the whole tab represents, not a per-group computation. A UNIQUE
+ * group is never a "duplicate" of any type, so it keeps its own plain
+ * "Unique" label regardless of ruleTypeLabel. The badge color still follows
+ * the group's own actual status (DUPLICATE=red, POTENTIAL_DUPLICATE=amber),
+ * only the text changes.
+ */
+export function buildDuplicateGroupColumns(ruleTypeLabel: string): ColumnDef<DuplicateGroup>[] {
+  return [
+    {
+      accessorKey: 'id',
+      header: 'Group ID',
+      cell: (info) => <span className="font-mono text-xs">{info.getValue<string>()}</span>,
     },
-  },
-  {
-    id: 'rootId',
-    header: 'Root Id',
-    // Only ever populated when the active rule marks "Root Id" as a SAME
-    // field - that's the only case where every record in the group is
-    // guaranteed to share one representative value. Rules that don't use
-    // this field (or treat it as UNIQUE/OPTIONAL) show a dash instead.
-    accessorFn: (g) => g.sameFieldValues['Root Id']?.display ?? '',
-    cell: (info) => <span className="font-mono text-xs">{info.getValue<string>() || '—'}</span>,
-  },
-  {
-    id: 'invoiceNumber',
-    header: 'Invoice Number',
-    accessorFn: (g) => g.sameFieldValues['Invoice Number']?.display ?? '',
-    cell: (info) => <span className="font-mono text-xs">{info.getValue<string>() || '—'}</span>,
-  },
-  {
-    id: 'records',
-    header: 'Records',
-    accessorFn: (g) => g.records.length,
-    cell: (info) => `${info.getValue<number>()} record${info.getValue<number>() === 1 ? '' : 's'}`,
-  },
-  {
-    id: 'sameFields',
-    header: 'Matched SAME Fields',
-    accessorFn: (g) => g.matchedSameFields.length,
-    cell: (info) => `${info.getValue<number>()} SAME fields`,
-  },
-  {
-    id: 'uniqueDiffs',
-    header: 'Different UNIQUE Fields',
-    accessorFn: (g) => g.differentUniqueFields.length,
-    cell: (info) => `${info.getValue<number>()} UNIQUE difference${info.getValue<number>() === 1 ? '' : 's'}`,
-  },
-  {
-    id: 'optionalDiffs',
-    header: 'Different OPTIONAL Fields',
-    accessorFn: (g) => g.differentOptionalFields.length,
-    cell: (info) => `${info.getValue<number>()} OPTIONAL difference${info.getValue<number>() === 1 ? '' : 's'}`,
-  },
-  {
-    id: 'explanation',
-    header: 'Explanation',
-    accessorFn: (g) => g.explanation.summary,
-    cell: (info) => <span className="text-muted-foreground">{info.getValue<string>()}</span>,
-  },
-]
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: (info) => {
+        const status = info.getValue<DuplicateStatus>()
+        const label = status === 'UNIQUE' ? 'Unique' : ruleTypeLabel
+        return <Badge variant={statusBadgeVariant(status)}>{label}</Badge>
+      },
+    },
+    {
+      id: 'rootId',
+      header: 'Root Id',
+      // Only ever populated when the active rule marks "Root Id" as a SAME
+      // field - that's the only case where every record in the group is
+      // guaranteed to share one representative value. Rules that don't use
+      // this field (or treat it as UNIQUE/OPTIONAL) show a dash instead.
+      accessorFn: (g) => g.sameFieldValues['Root Id']?.display ?? '',
+      cell: (info) => <span className="font-mono text-xs">{info.getValue<string>() || '—'}</span>,
+    },
+    {
+      id: 'invoiceNumber',
+      header: 'Invoice Number',
+      accessorFn: (g) => g.sameFieldValues['Invoice Number']?.display ?? '',
+      cell: (info) => <span className="font-mono text-xs">{info.getValue<string>() || '—'}</span>,
+    },
+    {
+      id: 'records',
+      header: 'Records',
+      accessorFn: (g) => g.records.length,
+      cell: (info) => `${info.getValue<number>()} record${info.getValue<number>() === 1 ? '' : 's'}`,
+    },
+    {
+      id: 'sameFields',
+      header: 'Matched SAME Fields',
+      accessorFn: (g) => g.matchedSameFields.length,
+      cell: (info) => `${info.getValue<number>()} SAME fields`,
+    },
+    {
+      id: 'uniqueDiffs',
+      header: 'Different UNIQUE Fields',
+      accessorFn: (g) => g.differentUniqueFields.length,
+      cell: (info) => `${info.getValue<number>()} UNIQUE difference${info.getValue<number>() === 1 ? '' : 's'}`,
+    },
+    {
+      id: 'optionalDiffs',
+      header: 'Different OPTIONAL Fields',
+      accessorFn: (g) => g.differentOptionalFields.length,
+      cell: (info) => `${info.getValue<number>()} OPTIONAL difference${info.getValue<number>() === 1 ? '' : 's'}`,
+    },
+    {
+      id: 'explanation',
+      header: 'Explanation',
+      accessorFn: (g) => g.explanation.summary,
+      cell: (info) => <span className="text-muted-foreground">{info.getValue<string>()}</span>,
+    },
+  ]
+}
