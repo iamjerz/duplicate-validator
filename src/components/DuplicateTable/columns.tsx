@@ -1,7 +1,9 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@/components/ui/badge'
 import type { DuplicateGroup, DuplicateStatus } from '@/types'
+import { classifyDuplicateType, DUPLICATE_TYPE_LABELS, type DuplicateTypeClassification } from '@/engine'
 
+/** Used by DuplicateDetails.tsx's Group Details modal, which still shows the raw engine status rather than the rule-driven label/color below. */
 export function statusBadgeVariant(status: DuplicateStatus): 'destructive' | 'warning' | 'success' | 'secondary' {
   if (status === 'DUPLICATE') return 'destructive'
   if (status === 'POTENTIAL_DUPLICATE') return 'warning'
@@ -9,20 +11,31 @@ export function statusBadgeVariant(status: DuplicateStatus): 'destructive' | 'wa
   return 'secondary'
 }
 
+/** The Status badge color for a flagged (non-UNIQUE) group, driven by the rule's own duplicate-type classification rather than that group's individual DUPLICATE/POTENTIAL_DUPLICATE status - red for a True-Duplicate rule, amber for a Potential-Duplicate rule (unchanged from before), gray for a rule whose Analysis doesn't resolve to either. */
+function ruleTypeBadgeVariant(classification: DuplicateTypeClassification): 'destructive' | 'warning' | 'secondary' {
+  if (classification === 'true-duplicate') return 'destructive'
+  if (classification === 'potential-duplicate') return 'warning'
+  return 'secondary'
+}
+
 /**
- * Builds the Results table's columns for one rule's tab. `ruleTypeLabel` is
- * that rule's own resolved duplicate-type label (see
- * resolveDuplicateTypeLabel in DuplicateTypeClassification.ts - "True
- * Duplicate"/"Potential Duplicate" when the rule's Analysis resolves to a
- * known type, otherwise the rule's own uploaded file name) - the same label
- * for every flagged row in this table, since it describes which rule/kind of
- * match the whole tab represents, not a per-group computation. A UNIQUE
- * group is never a "duplicate" of any type, so it keeps its own plain
- * "Unique" label regardless of ruleTypeLabel. The badge color still follows
- * the group's own actual status (DUPLICATE=red, POTENTIAL_DUPLICATE=amber),
- * only the text changes.
+ * Builds the Results table's columns for one rule's tab. `ruleAnalysis` is
+ * that rule's own Analysis text and `ruleFallbackName` its uploaded file
+ * name - together they resolve (via classifyDuplicateType) to one label and
+ * badge color used for EVERY flagged row in this table, since both describe
+ * which rule/kind of match the whole tab represents, not a per-group
+ * computation:
+ *  - Analysis resolves to "true duplicate" - label "True Duplicate", red badge.
+ *  - Analysis resolves to "potential duplicate" - label "Potential Duplicate", amber badge (unchanged from this app's original color).
+ *  - Analysis resolves to neither (or is missing) - label falls back to `ruleFallbackName`, gray badge, since we don't know which kind this is.
+ * A UNIQUE group is never a "duplicate" of any type, so it always keeps its
+ * own plain "Unique" label and green badge regardless of the rule.
  */
-export function buildDuplicateGroupColumns(ruleTypeLabel: string): ColumnDef<DuplicateGroup>[] {
+export function buildDuplicateGroupColumns(ruleAnalysis: string | undefined, ruleFallbackName: string): ColumnDef<DuplicateGroup>[] {
+  const classification = classifyDuplicateType(ruleAnalysis)
+  const ruleTypeLabel = classification ? DUPLICATE_TYPE_LABELS[classification] : ruleFallbackName
+  const ruleVariant = ruleTypeBadgeVariant(classification)
+
   return [
     {
       accessorKey: 'id',
@@ -34,8 +47,8 @@ export function buildDuplicateGroupColumns(ruleTypeLabel: string): ColumnDef<Dup
       header: 'Status',
       cell: (info) => {
         const status = info.getValue<DuplicateStatus>()
-        const label = status === 'UNIQUE' ? 'Unique' : ruleTypeLabel
-        return <Badge variant={statusBadgeVariant(status)}>{label}</Badge>
+        if (status === 'UNIQUE') return <Badge variant="success">Unique</Badge>
+        return <Badge variant={ruleVariant}>{ruleTypeLabel}</Badge>
       },
     },
     {

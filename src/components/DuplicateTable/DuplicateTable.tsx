@@ -39,8 +39,10 @@ export interface DuplicateTableProps {
   groups: DuplicateGroup[]
   onSelectGroup: (group: DuplicateGroup) => void
   selectedGroupId?: string | null
-  /** This rule's own resolved duplicate-type label - see resolveDuplicateTypeLabel. Shown in every flagged row's Status cell. */
-  ruleTypeLabel: string
+  /** This rule's own Analysis text, used (with ruleFallbackName) to resolve every flagged row's Status label and badge color - see buildDuplicateGroupColumns. */
+  ruleAnalysis: string | undefined
+  /** Shown as the Status label instead when ruleAnalysis doesn't resolve to a known duplicate type - typically the rule's own uploaded file name. */
+  ruleFallbackName: string
 }
 
 /** A lowercased, searchable blob of the group's identifying values, built once per group. */
@@ -58,7 +60,7 @@ function buildHaystack(group: DuplicateGroup): string {
  * virtualized (only the visible slice is ever mounted) rather than paginated,
  * which keeps scrolling smooth without chunking the data into pages.
  */
-export function DuplicateTable({ groups, onSelectGroup, selectedGroupId, ruleTypeLabel }: DuplicateTableProps) {
+export function DuplicateTable({ groups, onSelectGroup, selectedGroupId, ruleAnalysis, ruleFallbackName }: DuplicateTableProps) {
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 200)
   const [statusFilter, setStatusFilter] = useState<Set<FilterableStatus>>(
@@ -82,7 +84,7 @@ export function DuplicateTable({ groups, onSelectGroup, selectedGroupId, ruleTyp
     })
   }, [groups, statusFilter, debouncedSearch, haystacks])
 
-  const columns = useMemo(() => buildDuplicateGroupColumns(ruleTypeLabel), [ruleTypeLabel])
+  const columns = useMemo(() => buildDuplicateGroupColumns(ruleAnalysis, ruleFallbackName), [ruleAnalysis, ruleFallbackName])
 
   const table = useReactTable({
     data: filteredGroups,

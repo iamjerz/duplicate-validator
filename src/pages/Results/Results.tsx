@@ -10,7 +10,7 @@ import { ExportMenu } from '@/components/ExportMenu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useValidationSession } from '@/context/ValidationSessionContext'
 import { useSessionHistory } from '@/hooks'
-import { computeReviewActivity, resolveDuplicateTypeLabel } from '@/engine'
+import { computeReviewActivity } from '@/engine'
 import type { Disposition, DuplicateGroup, RuleDefinition, RuleSet } from '@/types'
 
 const EMPTY_DISPOSITIONS: Map<string, Disposition> = new Map()
@@ -145,7 +145,8 @@ export function Results() {
                     groups={outcome.result.groups}
                     onSelectGroup={(group) => setSelectedGroup({ group, ruleDefinition: def })}
                     selectedGroupId={isSelectedInThisTab ? selectedGroup?.group.id : undefined}
-                    ruleTypeLabel={resolveDuplicateTypeLabel(def.metadata?.analysis, def.fileName)}
+                    ruleAnalysis={def.metadata?.analysis}
+                    ruleFallbackName={def.fileName}
                   />
                 </TabsContent>
                 <TabsContent value="errors">
