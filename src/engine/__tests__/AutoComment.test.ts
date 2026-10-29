@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deriveInitials, formatMMDDYY, formatFieldList, buildFieldBasedReason, buildAutoComments } from '../AutoComment'
+import { deriveInitials, formatMMDDYY, formatFieldList, buildFieldBasedReason, buildAutoComments, mergeAutoComments } from '../AutoComment'
 import type { DuplicateGroup, KPISummary, RuleDefinition, RuleFileMetadata, RuleSet, RuleValidationOutcome } from '@/types'
 
 function emptyRuleSet(): RuleSet {
@@ -308,5 +308,62 @@ describe('buildAutoComments', () => {
     const groups = [groupFrom('DUP-1', 'DUPLICATE', { matchedSameFields: ['Invoice Number'] })]
     const result = buildAutoComments([outcomeFrom('missing-rule', groups)], [], 'Juan Dela Cruz', OCT_16_2026)
     expect(result.has('missing-rule')).toBe(false)
+  })
+})
+
+describe('mergeAutoComments', () => {
+  it('adds every entry from seeded when prev is empty', () => {
+    const prev = new Map()
+    const seeded = new Map([['rule-1', new Map([['DUP-1', 'comment A']])]])
+    const result = mergeAutoComments(prev, seeded)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('comment A')
+  })
+
+  it('never overwrites an existing entry for a (rule, group) pair that already has one', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'typed by hand']])]])
+    const seeded = new Map([['rule-1', new Map([['DUP-1', 'freshly auto-filled']])]])
+    const result = mergeAutoComments(prev, seeded)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('typed by hand')
+  })
+
+  it('backfills a new group under a rule that already has other comments, leaving the existing one untouched', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'existing']])]])
+    const seeded = new Map([
+      ['rule-1', new Map([
+        ['DUP-1', 'would-be overwrite'],
+        ['DUP-2', 'new backfilled comment'],
+      ])],
+    ])
+    const result = mergeAutoComments(prev, seeded)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('existing')
+    expect(result.get('rule-1')?.get('DUP-2')).toBe('new backfilled comment')
+  })
+
+  it('leaves a rule entirely alone when seeded has nothing new for it', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'existing']])]])
+    const seeded = new Map([['rule-1', new Map([['DUP-1', 'ignored']])]])
+    const result = mergeAutoComments(prev, seeded)
+    expect(result.get('rule-1')?.size).toBe(1)
+  })
+
+  it('leaves a rule present only in prev (not in seeded at all) completely untouched', () => {
+    const prev = new Map([['rule-untouched', new Map([['DUP-9', 'keep me']])]])
+    const seeded = new Map([['rule-1', new Map([['DUP-1', 'new']])]])
+    const result = mergeAutoComments(prev, seeded)
+    expect(result.get('rule-untouched')?.get('DUP-9')).toBe('keep me')
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('new')
+  })
+
+  it('returns the exact same reference as prev when nothing new was added', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'existing']])]])
+    const seeded = new Map([['rule-1', new Map([['DUP-1', 'duplicate of existing']])]])
+    const result = mergeAutoComments(prev, seeded)
+    expect(result).toBe(prev)
+  })
+
+  it('returns prev unchanged when seeded is empty', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'existing']])]])
+    const result = mergeAutoComments(prev, new Map())
+    expect(result).toBe(prev)
   })
 })

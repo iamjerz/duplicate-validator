@@ -24,7 +24,7 @@ import {
   type SheetValidationIssue,
 } from '@/services/excel'
 import { readRulesFile } from '@/services/rules'
-import { buildColumnMapping, applyRememberedColumnMappings, updateMappingEntry, acceptSuggestion, buildRuleSet, toSerializedRuleFile, fromSerializedRuleFile, buildAutoDispositions, buildAutoComments } from '@/engine'
+import { buildColumnMapping, applyRememberedColumnMappings, updateMappingEntry, acceptSuggestion, buildRuleSet, toSerializedRuleFile, fromSerializedRuleFile, buildAutoDispositions, buildAutoComments, mergeAutoComments } from '@/engine'
 import { nextRuleDefinitionId, nextExcelFileId } from '@/utils/id'
 import { useSavedRules } from '@/hooks/useSavedRules'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
@@ -387,17 +387,37 @@ export function ValidationSessionProvider({ children }: { children: ReactNode })
   // Analysis via buildAutoDispositions/buildAutoComments - see
   // AutoDisposition.ts and AutoComment.ts - so a fresh run starts with
   // "Potential Duplicate" rules pre-set to 'Carrier Review' and "True
-  // Duplicate" rules pre-set to 'Reject Shipment', plus (once a reviewer
-  // name is set) an auto-filled comment per flagged group. setDisposition
-  // and setComment's plain per-(ruleId, groupId) overwrites are untouched,
-  // so a reviewer can still change any of these afterward exactly as if
-  // they'd been picked/typed manually from the start.
+  // Duplicate" rules pre-set to 'Reject Shipment', plus (if a reviewer name
+  // is already set at this exact moment) an auto-filled comment per flagged
+  // group - if it isn't set yet, the backfill effect just below fills
+  // comments in once it is. setDisposition and setComment's plain
+  // per-(ruleId, groupId) overwrites are untouched, so a reviewer can still
+  // change any of these afterward exactly as if they'd been picked/typed
+  // manually from the start.
   const setValidationResults = useCallback((results: RuleValidationOutcome[]) => {
     setValidationResultsState(results)
     setDispositions(buildAutoDispositions(results, ruleDefinitionsRef.current))
     setComments(buildAutoComments(results, ruleDefinitionsRef.current, reviewerNameRef.current, new Date()))
     setHistoryEntryIdByRule(new Map())
   }, [])
+
+  // Backfills auto-comments retroactively whenever a (non-blank) reviewer
+  // name becomes available or changes, for whichever (rule, group) pairs
+  // don't already have a comment. This covers the case setValidationResults
+  // above can't: if the reviewer hadn't typed their name yet when they
+  // clicked Start Validation, buildAutoComments ran once against a blank
+  // name and seeded nothing - without this, typing a name afterward would
+  // never fill anything in, because nothing re-runs buildAutoComments on its
+  // own. Deliberately never overwrites an existing entry - whether it was
+  // auto-filled a moment ago under a different name or typed by hand - so
+  // this can only ever add a comment where there was none, never clobber a
+  // reviewer's own edit.
+  useEffect(() => {
+    if (!reviewerName.trim() || validationResults.length === 0) return
+    const seeded = buildAutoComments(validationResults, ruleDefinitionsRef.current, reviewerName, new Date())
+    if (seeded.size === 0) return
+    setComments((prev) => mergeAutoComments(prev, seeded))
+  }, [reviewerName, validationResults])
 
   const registerHistoryEntryId = useCallback((ruleDefinitionId: string, historyEntryId: string) => {
     setHistoryEntryIdByRule((prev) => {

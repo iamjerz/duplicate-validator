@@ -154,3 +154,41 @@ export function buildAutoComments(
 
   return out
 }
+
+/**
+ * Merges freshly-seeded auto-comments (e.g. a fresh buildAutoComments call)
+ * into an existing comments map without ever overwriting an entry that's
+ * already there, for ANY (ruleDefinitionId, groupId) pair - whether that
+ * entry was auto-filled a moment ago (perhaps under a different reviewer
+ * name) or typed by hand. Used to backfill comments once a reviewer name
+ * becomes available or changes after results already exist (see
+ * ValidationSessionContext's reviewerName effect), since buildAutoComments
+ * itself only ever runs once, at the moment results are first set - this is
+ * the only thing that can add to the map afterward, and it only ever adds,
+ * never replaces.
+ *
+ * Returns `prev` itself (the same reference, not a copy) when nothing new
+ * was actually added, so a caller wiring this into React state can skip the
+ * update entirely instead of causing a re-render for a no-op merge.
+ */
+export function mergeAutoComments(
+  prev: Map<string, Map<string, string>>,
+  seeded: Map<string, Map<string, string>>
+): Map<string, Map<string, string>> {
+  let changed = false
+  const next = new Map(prev)
+  for (const [ruleId, groupMap] of seeded) {
+    const forRule = new Map(next.get(ruleId))
+    let ruleChanged = false
+    for (const [groupId, comment] of groupMap) {
+      if (forRule.has(groupId)) continue
+      forRule.set(groupId, comment)
+      ruleChanged = true
+    }
+    if (ruleChanged) {
+      next.set(ruleId, forRule)
+      changed = true
+    }
+  }
+  return changed ? next : prev
+}
