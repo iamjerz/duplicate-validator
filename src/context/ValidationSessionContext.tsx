@@ -24,7 +24,7 @@ import {
   type SheetValidationIssue,
 } from '@/services/excel'
 import { readRulesFile } from '@/services/rules'
-import { buildColumnMapping, applyRememberedColumnMappings, updateMappingEntry, acceptSuggestion, buildRuleSet, toSerializedRuleFile, fromSerializedRuleFile, buildAutoDispositions, buildAutoComments, mergeAutoComments } from '@/engine'
+import { buildColumnMapping, applyRememberedColumnMappings, updateMappingEntry, acceptSuggestion, buildRuleSet, toSerializedRuleFile, fromSerializedRuleFile, buildAutoDispositions, buildAutoComments, refreshAutoComments } from '@/engine'
 import { nextRuleDefinitionId, nextExcelFileId } from '@/utils/id'
 import { useSavedRules } from '@/hooks/useSavedRules'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
@@ -401,22 +401,43 @@ export function ValidationSessionProvider({ children }: { children: ReactNode })
     setHistoryEntryIdByRule(new Map())
   }, [])
 
-  // Backfills auto-comments retroactively whenever a (non-blank) reviewer
-  // name becomes available or changes, for whichever (rule, group) pairs
-  // don't already have a comment. This covers the case setValidationResults
-  // above can't: if the reviewer hadn't typed their name yet when they
-  // clicked Start Validation, buildAutoComments ran once against a blank
-  // name and seeded nothing - without this, typing a name afterward would
-  // never fill anything in, because nothing re-runs buildAutoComments on its
-  // own. Deliberately never overwrites an existing entry - whether it was
-  // auto-filled a moment ago under a different name or typed by hand - so
-  // this can only ever add a comment where there was none, never clobber a
-  // reviewer's own edit.
+  // Tracks whichever reviewer name the comments map was last generated
+  // against, purely for the backfill/refresh effect just below to diff
+  // against - see refreshAutoComments. Not used anywhere else.
+  const previousCommentReviewerNameRef = useRef(reviewerName)
+
+  // Backfills AND refreshes auto-comments as the reviewer name changes, for
+  // whichever (rule, group) pairs don't already carry a comment the reviewer
+  // has actually edited by hand. This covers two cases setValidationResults
+  // above can't, because it only ever seeds comments once, at the moment
+  // results are first set:
+  //  - the reviewer hadn't typed their name yet when they clicked Start
+  //    Validation (buildAutoComments ran once against a blank name and
+  //    seeded nothing) - typing a name afterward needs something to
+  //    (re-)run buildAutoComments, since nothing else does.
+  //  - the Reviewer Name input has no debounce, so it updates on every
+  //    keystroke: typing "Jerramy Calites" into an EMPTY field fires this
+  //    effect first with just "J", which alone would seed every flagged
+  //    group's comment with the single initial "J:". A plain backfill-only
+  //    merge (only ever ADDING a missing entry, never replacing one) would
+  //    leave it stuck at "J:" forever, since by the time the full name is
+  //    typed every group already has an entry. refreshAutoComments instead
+  //    recognizes a comment that still exactly matches what the PREVIOUS
+  //    (also auto-filled) name would have produced, and lets only that one
+  //    catch up to the new name - a comment that's been hand-edited to
+  //    anything else is left alone no matter how many more times the name
+  //    changes afterward.
   useEffect(() => {
-    if (!reviewerName.trim() || validationResults.length === 0) return
-    const seeded = buildAutoComments(validationResults, ruleDefinitionsRef.current, reviewerName, new Date())
-    if (seeded.size === 0) return
-    setComments((prev) => mergeAutoComments(prev, seeded))
+    if (!reviewerName.trim() || validationResults.length === 0) {
+      previousCommentReviewerNameRef.current = reviewerName
+      return
+    }
+    const now = new Date()
+    const freshSeeded = buildAutoComments(validationResults, ruleDefinitionsRef.current, reviewerName, now)
+    const staleSeeded = buildAutoComments(validationResults, ruleDefinitionsRef.current, previousCommentReviewerNameRef.current, now)
+    previousCommentReviewerNameRef.current = reviewerName
+    if (freshSeeded.size === 0) return
+    setComments((prev) => refreshAutoComments(prev, staleSeeded, freshSeeded))
   }, [reviewerName, validationResults])
 
   const registerHistoryEntryId = useCallback((ruleDefinitionId: string, historyEntryId: string) => {

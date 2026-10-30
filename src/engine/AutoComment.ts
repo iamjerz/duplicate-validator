@@ -160,12 +160,10 @@ export function buildAutoComments(
  * into an existing comments map without ever overwriting an entry that's
  * already there, for ANY (ruleDefinitionId, groupId) pair - whether that
  * entry was auto-filled a moment ago (perhaps under a different reviewer
- * name) or typed by hand. Used to backfill comments once a reviewer name
- * becomes available or changes after results already exist (see
- * ValidationSessionContext's reviewerName effect), since buildAutoComments
- * itself only ever runs once, at the moment results are first set - this is
- * the only thing that can add to the map afterward, and it only ever adds,
- * never replaces.
+ * name) or typed by hand. This is the pure "backfill" half of
+ * refreshAutoComments below (equivalent to calling it with an empty
+ * `staleSeeded` map) - kept as its own simple function since it's easier to
+ * reason about and test in isolation.
  *
  * Returns `prev` itself (the same reference, not a copy) when nothing new
  * was actually added, so a caller wiring this into React state can skip the
@@ -184,6 +182,67 @@ export function mergeAutoComments(
       if (forRule.has(groupId)) continue
       forRule.set(groupId, comment)
       ruleChanged = true
+    }
+    if (ruleChanged) {
+      next.set(ruleId, forRule)
+      changed = true
+    }
+  }
+  return changed ? next : prev
+}
+
+/**
+ * Backfills AND refreshes auto-comments as the reviewer name changes,
+ * without ever touching a comment the reviewer has actually hand-edited.
+ * Needed because the reviewer name field updates on every keystroke
+ * (AppShell's Input has no debounce): if results already exist when they
+ * start typing their name, a plain backfill-only merge (mergeAutoComments)
+ * would see the very first keystroke - e.g. "J" from "Jerramy Calites" -
+ * seed every flagged group's comment with the single initial "J:", and then
+ * never correct it, since by the time the full name "Jerramy Calites"
+ * (initials "JC") is typed, mergeAutoComments finds an entry already there
+ * for every group and leaves it alone forever.
+ *
+ * `staleSeeded` is what buildAutoComments would have produced for the
+ * PREVIOUS reviewer name (same results, same rule definitions, same `now`
+ * as `freshSeeded` - only the name differs), letting this tell "untouched
+ * since it was auto-filled under the old name" apart from "the reviewer
+ * edited this" per (ruleDefinitionId, groupId):
+ *  - no existing entry -> add the fresh one (plain backfill).
+ *  - an existing entry that exactly equals what the OLD name would have
+ *    produced -> nothing has touched it since auto-fill, so it's safe to
+ *    refresh with the new name's version (this is what lets the comment
+ *    catch up to "JC:" once the reviewer finishes typing).
+ *  - anything else (including a value that already equals the fresh
+ *    comment, or one edited to something else entirely) -> left untouched.
+ *
+ * Returns `prev` itself (same reference) when nothing actually changed, for
+ * the same no-op-render-skipping reason as mergeAutoComments.
+ */
+export function refreshAutoComments(
+  prev: Map<string, Map<string, string>>,
+  staleSeeded: Map<string, Map<string, string>>,
+  freshSeeded: Map<string, Map<string, string>>
+): Map<string, Map<string, string>> {
+  let changed = false
+  const next = new Map(prev)
+  for (const [ruleId, groupMap] of freshSeeded) {
+    const forRule = new Map(next.get(ruleId))
+    const staleForRule = staleSeeded.get(ruleId)
+    let ruleChanged = false
+    for (const [groupId, freshComment] of groupMap) {
+      const existing = forRule.get(groupId)
+      if (existing === undefined) {
+        forRule.set(groupId, freshComment)
+        ruleChanged = true
+        continue
+      }
+      if (existing === freshComment) continue
+      const staleComment = staleForRule?.get(groupId)
+      if (staleComment !== undefined && existing === staleComment) {
+        forRule.set(groupId, freshComment)
+        ruleChanged = true
+      }
     }
     if (ruleChanged) {
       next.set(ruleId, forRule)

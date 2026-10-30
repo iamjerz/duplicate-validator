@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deriveInitials, formatMMDDYY, formatFieldList, buildFieldBasedReason, buildAutoComments, mergeAutoComments } from '../AutoComment'
+import { deriveInitials, formatMMDDYY, formatFieldList, buildFieldBasedReason, buildAutoComments, mergeAutoComments, refreshAutoComments } from '../AutoComment'
 import type { DuplicateGroup, KPISummary, RuleDefinition, RuleFileMetadata, RuleSet, RuleValidationOutcome } from '@/types'
 
 function emptyRuleSet(): RuleSet {
@@ -364,6 +364,79 @@ describe('mergeAutoComments', () => {
   it('returns prev unchanged when seeded is empty', () => {
     const prev = new Map([['rule-1', new Map([['DUP-1', 'existing']])]])
     const result = mergeAutoComments(prev, new Map())
+    expect(result).toBe(prev)
+  })
+})
+
+describe('refreshAutoComments', () => {
+  it('backfills a missing entry exactly like mergeAutoComments, regardless of staleSeeded', () => {
+    const prev = new Map()
+    const staleSeeded = new Map()
+    const freshSeeded = new Map([['rule-1', new Map([['DUP-1', 'comment A']])]])
+    const result = refreshAutoComments(prev, staleSeeded, freshSeeded)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('comment A')
+  })
+
+  it('refreshes an entry that still exactly matches what the PREVIOUS name produced (the reviewer mid-typing their name)', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'J: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const staleSeeded = new Map([['rule-1', new Map([['DUP-1', 'J: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const freshSeeded = new Map([['rule-1', new Map([['DUP-1', 'JC: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const result = refreshAutoComments(prev, staleSeeded, freshSeeded)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('JC: 103026 : True Duplicate : Same Invoice Number.')
+  })
+
+  it('reproduces the real keystroke-by-keystroke typing sequence ending at the full name\'s correct initials', () => {
+    const def = ruleDef('rule-1', { analysis: 'True Duplicate for denial', commentReason: 'enabled' })
+    const groups = [groupFrom('DUP-1', 'DUPLICATE', { matchedSameFields: ['Invoice Number'] })]
+    const outcome = outcomeFrom('rule-1', groups)
+
+    let comments = new Map<string, Map<string, string>>()
+    let previousName = ''
+    for (const typed of ['J', 'Je', 'Jer', 'Jerramy', 'Jerramy ', 'Jerramy C', 'Jerramy Calites']) {
+      const freshSeeded = buildAutoComments([outcome], [def], typed, OCT_16_2026)
+      const staleSeeded = buildAutoComments([outcome], [def], previousName, OCT_16_2026)
+      comments = refreshAutoComments(comments, staleSeeded, freshSeeded)
+      previousName = typed
+    }
+
+    expect(comments.get('rule-1')?.get('DUP-1')).toBe('JC: 101626 : True Duplicate : Same Invoice Number.')
+  })
+
+  it('never touches a comment that has been hand-edited since it was last auto-filled, even as the name keeps changing', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'JC: 103026 : True Duplicate : Confirmed with carrier, denying.']])]])
+    const staleSeeded = new Map([['rule-1', new Map([['DUP-1', 'JC: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const freshSeeded = new Map([['rule-1', new Map([['DUP-1', 'PR: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const result = refreshAutoComments(prev, staleSeeded, freshSeeded)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('JC: 103026 : True Duplicate : Confirmed with carrier, denying.')
+  })
+
+  it('backfills one group while leaving a sibling hand-edited group under the same rule untouched', () => {
+    const prev = new Map([
+      ['rule-1', new Map([['DUP-1', 'JC: 103026 : True Duplicate : hand-edited text']])],
+    ])
+    const staleSeeded = new Map([['rule-1', new Map([['DUP-1', 'J: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const freshSeeded = new Map([
+      ['rule-1', new Map([
+        ['DUP-1', 'JC: 103026 : True Duplicate : Same Invoice Number.'],
+        ['DUP-2', 'JC: 103026 : True Duplicate : Same Invoice Number.'],
+      ])],
+    ])
+    const result = refreshAutoComments(prev, staleSeeded, freshSeeded)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('JC: 103026 : True Duplicate : hand-edited text')
+    expect(result.get('rule-1')?.get('DUP-2')).toBe('JC: 103026 : True Duplicate : Same Invoice Number.')
+  })
+
+  it('returns the exact same reference as prev when every entry already matches freshSeeded', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'JC: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const staleSeeded = new Map([['rule-1', new Map([['DUP-1', 'J: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const freshSeeded = new Map([['rule-1', new Map([['DUP-1', 'JC: 103026 : True Duplicate : Same Invoice Number.']])]])
+    const result = refreshAutoComments(prev, staleSeeded, freshSeeded)
+    expect(result).toBe(prev)
+  })
+
+  it('returns prev unchanged when freshSeeded is empty', () => {
+    const prev = new Map([['rule-1', new Map([['DUP-1', 'existing']])]])
+    const result = refreshAutoComments(prev, new Map(), new Map())
     expect(result).toBe(prev)
   })
 })
