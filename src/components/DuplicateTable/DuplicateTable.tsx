@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table'
-import type { DuplicateGroup, DuplicateStatus } from '@/types'
+import type { CellValue, DuplicateGroup, DuplicateStatus } from '@/types'
 import { useDebouncedValue } from '@/hooks'
 import { formatNumber } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
@@ -43,6 +43,12 @@ export interface DuplicateTableProps {
   ruleAnalysis: string | undefined
   /** Shown as the Status label instead when ruleAnalysis doesn't resolve to a known duplicate type - typically the rule's own uploaded file name. */
   ruleFallbackName: string
+  /** This rule's own "level" metadata text - decides whether the identifier column(s) show Invoice Number (Invoice level, or unrecognized) or Tracking Number + Bill Of Lading (Shipment/Charge level). */
+  ruleLevel: string | undefined
+  /** The full dataset's rows, backing the Tracking Number / Bill Of Lading columns' direct cell lookups - see buildDuplicateGroupColumns. Named distinctly from the `rows` this component already derives from react-table below (the rendered/sorted Row objects, a completely different thing). */
+  datasetRows: CellValue[][]
+  /** Field name -> column index for `rows`, shared across every rule's tab (the same uploaded file, same mapping). */
+  columnIndexByField: Map<string, number>
 }
 
 /** A lowercased, searchable blob of the group's identifying values, built once per group. */
@@ -60,7 +66,16 @@ function buildHaystack(group: DuplicateGroup): string {
  * virtualized (only the visible slice is ever mounted) rather than paginated,
  * which keeps scrolling smooth without chunking the data into pages.
  */
-export function DuplicateTable({ groups, onSelectGroup, selectedGroupId, ruleAnalysis, ruleFallbackName }: DuplicateTableProps) {
+export function DuplicateTable({
+  groups,
+  onSelectGroup,
+  selectedGroupId,
+  ruleAnalysis,
+  ruleFallbackName,
+  ruleLevel,
+  datasetRows,
+  columnIndexByField,
+}: DuplicateTableProps) {
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 200)
   const [statusFilter, setStatusFilter] = useState<Set<FilterableStatus>>(
@@ -84,7 +99,10 @@ export function DuplicateTable({ groups, onSelectGroup, selectedGroupId, ruleAna
     })
   }, [groups, statusFilter, debouncedSearch, haystacks])
 
-  const columns = useMemo(() => buildDuplicateGroupColumns(ruleAnalysis, ruleFallbackName), [ruleAnalysis, ruleFallbackName])
+  const columns = useMemo(
+    () => buildDuplicateGroupColumns({ ruleAnalysis, ruleFallbackName, ruleLevel, rows: datasetRows, columnIndexByField }),
+    [ruleAnalysis, ruleFallbackName, ruleLevel, datasetRows, columnIndexByField]
+  )
 
   const table = useReactTable({
     data: filteredGroups,

@@ -10,7 +10,7 @@ import { ExportMenu } from '@/components/ExportMenu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useValidationSession } from '@/context/ValidationSessionContext'
 import { useSessionHistory } from '@/hooks'
-import { computeReviewActivity } from '@/engine'
+import { computeReviewActivity, buildColumnIndexByField } from '@/engine'
 import type { Disposition, DuplicateGroup, RuleDefinition, RuleSet } from '@/types'
 
 const EMPTY_DISPOSITIONS: Map<string, Disposition> = new Map()
@@ -26,6 +26,7 @@ export function Results() {
     validationResults,
     ruleDefinitions,
     excelDataset,
+    mapping,
     dispositions,
     setDisposition,
     comments,
@@ -82,6 +83,19 @@ export function Results() {
     for (const outcome of validationResults) map.set(outcome.ruleDefinitionId, outcome.effectiveRuleSet)
     return map
   }, [validationResults])
+
+  // One field-name -> column-index map, shared by every rule's tab (the
+  // mapping is a property of the uploaded file + its column mapping, not of
+  // any individual rule) - lets the Duplicate Groups table's Tracking
+  // Number/Bill Of Lading columns (Shipment/Charge rules) look up a raw
+  // cell value directly instead of going through a rule's own SAME-field
+  // bookkeeping, which wouldn't have an entry for a field the rule treats as
+  // UNIQUE or doesn't compare at all. See DuplicateTable's ruleLevel/rows/
+  // columnIndexByField props and buildDuplicateGroupColumns.
+  const columnIndexByField = useMemo(() => {
+    if (!excelDataset || !mapping) return new Map<string, number>()
+    return buildColumnIndexByField(excelDataset.headers, mapping.entries)
+  }, [excelDataset, mapping])
 
   if (validationResults.length === 0 || !excelDataset) {
     return <Navigate to="/new" replace />
@@ -147,6 +161,9 @@ export function Results() {
                     selectedGroupId={isSelectedInThisTab ? selectedGroup?.group.id : undefined}
                     ruleAnalysis={def.metadata?.analysis}
                     ruleFallbackName={def.fileName}
+                    ruleLevel={def.metadata?.level}
+                    datasetRows={excelDataset.rows}
+                    columnIndexByField={columnIndexByField}
                   />
                 </TabsContent>
                 <TabsContent value="errors">
