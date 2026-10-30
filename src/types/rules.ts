@@ -53,9 +53,15 @@ export interface RuleFileMetadata {
   level?: string
   analysis?: string
   /**
-   * The fixed reason clause auto-filled comments use for every group this
-   * rule flags - e.g. "Same Tracking No., Invoice No., Shipping Details,
-   * Charge, and Invoice Amount." See AutoComment.ts.
+   * A rule file's own free-text description of what it flags, e.g. "Same
+   * Tracking No., Invoice No., Shipping Details, Charge, and Invoice
+   * Amount." Captured and round-tripped if a rule file includes it, but not
+   * read by anything in this app: AutoComment.ts builds its own per-group
+   * Reason text from each group's actual matched/differing fields instead
+   * (see buildFieldBasedReason), and eligibility for auto-commenting is
+   * decided purely by whether `analysis` resolves to a known duplicate type
+   * (see classifyDuplicateType) - a rule with no commentReason at all is
+   * still fully eligible.
    */
   commentReason?: string
   /** Any other descriptive top-level text fields the file included. */

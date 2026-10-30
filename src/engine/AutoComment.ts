@@ -89,18 +89,25 @@ export function formatMMDDYY(date: Date): string {
  *  - the group's own `dispositionOverride` (see DispositionOverride.ts) -
  *    takes priority when present, using the fixed type label "Not
  *    Duplicate" and the override's own reason text instead of anything
- *    configured on the rule or computed below;
+ *    computed below;
  *  - otherwise, the rule's Analysis resolves to a known type via
- *    classifyDuplicateType AND the rule's metadata carries a non-blank
- *    commentReason (see RuleFileMetadata) - a rule missing either one
- *    contributes no entry for a group with no override. commentReason itself
- *    is only a per-rule on/off switch here, not the text that gets used (see
- *    below) - a rule author sets any non-blank reason to opt that rule into
- *    auto-commenting at all.
+ *    classifyDuplicateType - the exact same check (and the exact same
+ *    `analysis` text) buildAutoDispositions and the Results table's Status
+ *    column already key off of, so all three agree on which rules are
+ *    "real" True/Potential Duplicate rules. A rule whose Analysis doesn't
+ *    resolve (missing, or custom/unrecognized text) contributes no entry for
+ *    a group with no override - there's no type label to put in the
+ *    comment. This used to ALSO require the rule's metadata to carry a
+ *    non-blank `commentReason` as a separate per-rule opt-in, but that was
+ *    dropped: a real rule file that simply predates the CommentReason field,
+ *    or whose author forgot to set it, would otherwise get zero auto-filled
+ *    comments with no error or indication why - exactly the kind of silent,
+ *    hard-to-diagnose gap this feature should not have. `commentReason`
+ *    itself is no longer consulted here at all (see RuleFileMetadata).
  *
- * The Reason text itself is NOT the rule's static configured commentReason -
- * it's built fresh per group by buildFieldBasedReason, from that specific
- * group's own matched/differing fields. Two groups flagged by the same rule
+ * The Reason text is NOT any rule-configured text - it's built fresh per
+ * group by buildFieldBasedReason, from that specific group's own
+ * matched/differing fields. Two groups flagged by the same rule
  * can therefore read differently (e.g. one says "Same Invoice No. and
  * Client Code." because every compared field happened to agree, while
  * another under the identical rule says "Same Invoice No. and Client Code;
@@ -129,10 +136,9 @@ export function buildAutoComments(
 
   for (const outcome of results) {
     const definition = ruleDefinitions.find((d) => d.id === outcome.ruleDefinitionId)
-    const hasReasonConfigured = !!definition?.metadata?.commentReason?.trim()
     const classification = classifyDuplicateType(definition?.metadata?.analysis)
     const ruleTypeLabel = classification ? DUPLICATE_TYPE_LABELS[classification] : null
-    const ruleEnabled = ruleTypeLabel !== null && hasReasonConfigured
+    const ruleEnabled = ruleTypeLabel !== null
 
     const forRule = new Map<string, string>()
     for (const group of outcome.result.groups) {

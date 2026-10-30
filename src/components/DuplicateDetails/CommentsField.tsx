@@ -35,9 +35,10 @@ export function CommentsField({ value, onChange }: CommentsFieldProps) {
         rows={3}
       />
       <p className="text-xs text-muted-foreground">
-        Pre-filled as &quot;Initials: Date : Type : Reason&quot; once a Reviewer name is set in the header and the rule
-        has a configured reason - edit it freely. It&apos;s kept only for this session, and is included as a column
-        in exports for any record with an Audit ID and an Audit Exception Status of Open.
+        Pre-filled as &quot;Initials: Date : Type : Reason&quot; once a Reviewer name is set in the header, for any
+        rule recognized as True Duplicate or Potential Duplicate - edit it freely. It&apos;s kept only for this
+        session, and is included as a column in exports for any record with an Audit ID and an Audit Exception
+        Status of Open.
       </p>
     </div>
   )

@@ -215,11 +215,16 @@ describe('buildAutoComments', () => {
     expect(result.size).toBe(0)
   })
 
-  it('contributes no entry for a rule with no commentReason configured', () => {
+  it('still auto-fills a comment for a rule with no commentReason configured at all, as long as Analysis resolves', () => {
+    // Real-world case: a rule file that predates the CommentReason field, or
+    // whose author never set it, should not silently get zero auto-filled
+    // comments - eligibility is decided by Analysis alone (see
+    // classifyDuplicateType), same as buildAutoDispositions and the Results
+    // table's Status column.
     const def = ruleDef('rule-1', { analysis: 'True Duplicate for denial' })
     const groups = [groupFrom('DUP-1', 'DUPLICATE', { matchedSameFields: ['Invoice Number'] })]
     const result = buildAutoComments([outcomeFrom('rule-1', groups)], [def], 'Juan Dela Cruz', OCT_16_2026)
-    expect(result.has('rule-1')).toBe(false)
+    expect(result.get('rule-1')?.get('DUP-1')).toBe('JDC: 101626 : True Duplicate : Same Invoice Number.')
   })
 
   it('contributes no entry for a rule whose Analysis matches neither type', () => {
@@ -250,9 +255,9 @@ describe('buildAutoComments', () => {
   })
 
   it('keeps every rule in a multi-rule run independent, each with its own reason text', () => {
-    const trueDef = ruleDef('rule-true', { analysis: 'True Duplicate for denial', commentReason: 'enabled' })
-    const potentialDef = ruleDef('rule-potential', { analysis: 'Potential Duplicate', commentReason: 'enabled' })
-    const unconfiguredDef = ruleDef('rule-plain', { analysis: 'True Duplicate for denial' })
+    const trueDef = ruleDef('rule-true', { analysis: 'True Duplicate for denial' })
+    const potentialDef = ruleDef('rule-potential', { analysis: 'Potential Duplicate' })
+    const unrecognizedDef = ruleDef('rule-unrecognized', { analysis: 'Some custom rule' })
     const outcomes = [
       outcomeFrom('rule-true', [groupFrom('DUP-1', 'DUPLICATE', { matchedSameFields: ['Invoice Number'] })]),
       outcomeFrom('rule-potential', [
@@ -261,12 +266,12 @@ describe('buildAutoComments', () => {
           differentUniqueFields: ['Invoice Number'],
         }),
       ]),
-      outcomeFrom('rule-plain', [groupFrom('DUP-3', 'DUPLICATE', { matchedSameFields: ['Invoice Number'] })]),
+      outcomeFrom('rule-unrecognized', [groupFrom('DUP-3', 'DUPLICATE', { matchedSameFields: ['Invoice Number'] })]),
     ]
-    const result = buildAutoComments(outcomes, [trueDef, potentialDef, unconfiguredDef], 'Juan Dela Cruz', OCT_16_2026)
+    const result = buildAutoComments(outcomes, [trueDef, potentialDef, unrecognizedDef], 'Juan Dela Cruz', OCT_16_2026)
     expect(result.get('rule-true')?.get('DUP-1')).toBe('JDC: 101626 : True Duplicate : Same Invoice Number.')
     expect(result.get('rule-potential')?.get('DUP-2')).toBe('JDC: 101626 : Potential Duplicate : Same Tracking Number; Invoice Number differs.')
-    expect(result.has('rule-plain')).toBe(false)
+    expect(result.has('rule-unrecognized')).toBe(false)
     expect(result.size).toBe(2)
   })
 
