@@ -147,7 +147,11 @@ export function Results() {
                 />
               </div>
 
-              <ValidationSummary kpis={outcome.result.kpis} />
+              <ValidationSummary
+                kpis={outcome.result.kpis}
+                ruleAnalysis={def.metadata?.analysis}
+                ruleFallbackName={def.fileName}
+              />
 
               <Tabs defaultValue="groups">
                 <TabsList>

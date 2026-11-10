@@ -23,17 +23,29 @@ import {
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table'
 import type { CellValue, DuplicateGroup, DuplicateStatus } from '@/types'
 import { useDebouncedValue } from '@/hooks'
+import { resolveDuplicateTypeLabel } from '@/engine'
 import { formatNumber } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
 import { buildDuplicateGroupColumns } from './columns'
 
-type FilterableStatus = Exclude<DuplicateStatus, 'VALIDATION_ERROR'>
+/**
+ * The checkbox filter's own 2-value status, collapsing the engine's raw
+ * DUPLICATE/POTENTIAL_DUPLICATE distinction into one "FLAGGED" bucket - this
+ * matches what the Status column actually shows (see buildDuplicateGroupColumns):
+ * every non-UNIQUE row under one rule displays that SAME rule-driven type
+ * label/color regardless of whether its own engine status was DUPLICATE or
+ * POTENTIAL_DUPLICATE, so a filter that still distinguished the two raw
+ * statuses could show a checkbox labeled "Potential Duplicate" next to rows
+ * that actually read "True Duplicate" in the table - exactly the mismatch
+ * this exists to avoid. (`VALIDATION_ERROR` never actually appears in
+ * `groups` - those rows live in the separate Validation Errors list - but is
+ * folded into FLAGGED defensively rather than silently excluded.)
+ */
+type DisplayStatusFilter = 'FLAGGED' | 'UNIQUE'
 
-const STATUS_OPTIONS: { value: FilterableStatus; label: string }[] = [
-  { value: 'DUPLICATE', label: 'Duplicate' },
-  { value: 'POTENTIAL_DUPLICATE', label: 'Potential Duplicate' },
-  { value: 'UNIQUE', label: 'Unique' },
-]
+function displayStatusOf(status: DuplicateStatus): DisplayStatusFilter {
+  return status === 'UNIQUE' ? 'UNIQUE' : 'FLAGGED'
+}
 
 export interface DuplicateTableProps {
   groups: DuplicateGroup[]
@@ -78,11 +90,22 @@ export function DuplicateTable({
 }: DuplicateTableProps) {
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 200)
-  const [statusFilter, setStatusFilter] = useState<Set<FilterableStatus>>(
-    () => new Set(['DUPLICATE', 'POTENTIAL_DUPLICATE', 'UNIQUE'])
+  const [statusFilter, setStatusFilter] = useState<Set<DisplayStatusFilter>>(
+    () => new Set<DisplayStatusFilter>(['FLAGGED', 'UNIQUE'])
   )
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+
+  // This rule's own type label (e.g. "True Duplicate", or its file name when
+  // Analysis doesn't resolve to a known type) - the FLAGGED checkbox's label,
+  // recomputed per render from the same props buildDuplicateGroupColumns
+  // already uses for the Status column, so the two can never say different
+  // things about the same rule.
+  const flaggedLabel = resolveDuplicateTypeLabel(ruleAnalysis, ruleFallbackName)
+  const statusOptions: { value: DisplayStatusFilter; label: string }[] = [
+    { value: 'FLAGGED', label: flaggedLabel },
+    { value: 'UNIQUE', label: 'Unique' },
+  ]
 
   const haystacks = useMemo(() => {
     const map = new Map<string, string>()
@@ -93,7 +116,7 @@ export function DuplicateTable({
   const filteredGroups = useMemo(() => {
     const term = debouncedSearch.trim().toLowerCase()
     return groups.filter((g) => {
-      if (!statusFilter.has(g.status)) return false
+      if (!statusFilter.has(displayStatusOf(g.status))) return false
       if (!term) return true
       return haystacks.get(g.id)?.includes(term) ?? false
     })
@@ -144,7 +167,7 @@ export function DuplicateTable({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {STATUS_OPTIONS.map((option) => (
+          {statusOptions.map((option) => (
             <label key={option.value} className="flex cursor-pointer items-center gap-1.5 text-sm">
               <Checkbox
                 checked={statusFilter.has(option.value)}

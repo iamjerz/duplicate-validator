@@ -1,7 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@/components/ui/badge'
 import type { CellValue, DuplicateGroup, DuplicateStatus } from '@/types'
-import { classifyDuplicateType, classifyRuleLevel, DUPLICATE_TYPE_LABELS, normalizeValue, type DuplicateTypeClassification } from '@/engine'
+import { classifyDuplicateType, classifyRuleLevel, normalizeValue, resolveDuplicateTypeLabel, type DuplicateTypeClassification } from '@/engine'
 
 /** Used by DuplicateDetails.tsx's Group Details modal, which still shows the raw engine status rather than the rule-driven label/color below. */
 export function statusBadgeVariant(status: DuplicateStatus): 'destructive' | 'warning' | 'success' | 'secondary' {
@@ -91,7 +91,7 @@ export function buildDuplicateGroupColumns({
   columnIndexByField,
 }: BuildDuplicateGroupColumnsOptions): ColumnDef<DuplicateGroup>[] {
   const classification = classifyDuplicateType(ruleAnalysis)
-  const ruleTypeLabel = classification ? DUPLICATE_TYPE_LABELS[classification] : ruleFallbackName
+  const ruleTypeLabel = resolveDuplicateTypeLabel(ruleAnalysis, ruleFallbackName)
   const ruleVariant = ruleTypeBadgeVariant(classification)
 
   const level = classifyRuleLevel(ruleLevel)
