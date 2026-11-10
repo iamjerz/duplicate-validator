@@ -702,3 +702,83 @@ describe('buildExportWorkbook', () => {
     expect(exported.every((r) => r['Add Action'] === 'Pending')).toBe(true)
   })
 })
+
+// Every real sample/production file this app has ever been run against has
+// "Root Id" as a literal column header TWICE: once early (the record's real
+// identifier, used for duplicate matching) and again much later, usually
+// blank. A plain by-name object can't hold two values under one key, so
+// reading the result back via the normal object-mode sheet_to_json (as every
+// test above does) would only ever show ONE of the two columns - that's a
+// limitation of reading a sheet back into a JS object, not of the sheet
+// itself. These tests instead read the sheet back positionally (header: 1 -
+// an array of arrays, the same shape Excel itself uses), which is the only
+// way to actually observe whether both original columns survived, each with
+// its own original value, exactly as they were in the source file.
+describe('buildExportWorkbook - repeated column headers are never collapsed', () => {
+  const headers = [
+    'Audit ID',
+    'Audit Exception Status',
+    'Add Action',
+    'Add Comments',
+    'Root Id',
+    'Invoice Number',
+    'Client Code',
+    'Root Id',
+  ]
+  // Both records share the same FIRST "Root Id"/Invoice Number/Client Code
+  // (so they form one DUPLICATE group, same as RULES expects), but the
+  // SECOND "Root Id" - mirroring the real files, where it sits much later,
+  // roughly where "Parent Id" does, and is usually blank - differs between
+  // them ('' vs '999'), proving the two same-named columns are tracked
+  // completely independently rather than merged or confused with each other.
+  const rows: CellValue[][] = [
+    ['A-1', 'Open', 'Pending', 'N/A', '111', 'INV-1', 'ABC', ''],
+    ['A-2', 'Open', 'Pending', 'N/A', '111', 'INV-1', 'ABC', '999'],
+  ]
+
+  it('keeps both "Root Id" columns, each with its own original value, in the complete export', () => {
+    const dataset = datasetFrom(headers, rows)
+    const { result } = runValidation(headers, rows)
+
+    const wb = buildExportWorkbook(dataset, result, 'complete', new Map(), new Map())
+    const sheet = wb.Sheets[dataset.sheetName]
+    const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet!, { header: 1 })
+
+    expect(grid[0]).toEqual(headers) // "Root Id" still appears twice, at its original two positions
+    expect(grid[1]).toEqual(rows[0]) // row 0's two Root Id values ('111' and '') both survive
+    expect(grid[2]).toEqual(rows[1]) // row 1's two Root Id values ('111' and '999') both survive
+  })
+
+  it('keeps both "Root Id" columns intact in the flagged export too, alongside a written disposition', () => {
+    const dataset = datasetFrom(headers, rows)
+    const { result } = runValidation(headers, rows)
+    const group = result.groups.find((g) => g.records.length === 2)
+    expect(group).toBeTruthy()
+    const dispositions = new Map<string, Disposition>([[group!.id, 'Reject Invoice']])
+
+    const wb = buildExportWorkbook(dataset, result, 'flagged', dispositions, new Map(), 'True Duplicate Records')
+    const sheet = wb.Sheets['True Duplicate Records']
+    const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet!, { header: 1 })
+
+    expect(grid[0]).toEqual(headers)
+    // The written disposition lands in "Add Action" (index 2) only - neither
+    // "Root Id" column (index 4 or 7) is touched by it.
+    expect(grid[1]).toEqual(['A-1', 'Open', 'Reject Invoice', 'N/A', '111', 'INV-1', 'ABC', ''])
+    expect(grid[2]).toEqual(['A-2', 'Open', 'Reject Invoice', 'N/A', '111', 'INV-1', 'ABC', '999'])
+  })
+
+  it('does not let the previously-reported bug regress: the FIRST "Root Id" (the real identifier) is never overwritten by the second, blank-ish one', () => {
+    const dataset = datasetFrom(headers, rows)
+    const { result } = runValidation(headers, rows)
+    const wb = buildExportWorkbook(dataset, result, 'complete', new Map(), new Map())
+    const sheet = wb.Sheets[dataset.sheetName]
+    const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet!, { header: 1 })
+
+    const firstRootIdIndex = headers.indexOf('Root Id')
+    const secondRootIdIndex = headers.lastIndexOf('Root Id')
+    expect(grid[1][firstRootIdIndex]).toBe('111') // not overwritten by the second column's ('') value
+    expect(grid[2][firstRootIdIndex]).toBe('111') // not overwritten by the second column's ('999') value
+    expect(grid[1][secondRootIdIndex]).toBe('') // the second column keeps its own distinct value too
+    expect(grid[2][secondRootIdIndex]).toBe('999')
+  })
+})

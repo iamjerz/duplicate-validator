@@ -90,24 +90,94 @@ export function isRecordExportEligible(dataset: ExcelDataset, rowIndex: number):
 }
 
 /**
+ * A real freight-audit export can repeat a column header verbatim - every
+ * sample/production file this app has ever been run against has "Root Id"
+ * TWICE (once early, holding the record's real identifier used for
+ * duplicate matching, and again much later as a mostly-blank column that
+ * happens to share the exact same header text). dataset.headers/dataset.rows
+ * are positional arrays and carry both columns just fine, but ExportRow
+ * (below) is an object keyed BY that header text - doing `row[header] =
+ * value` for every column in order, as recordRow used to, let the LATER
+ * same-named column's value silently overwrite the EARLIER one's in the
+ * resulting object, so only one of the two original columns survived into
+ * the export at all, under whichever value happened to come last (in the
+ * real files, that's the mostly-blank second "Root Id" - so the exported
+ * file showed "-" where the original had the real identifier). That is a
+ * real, confirmed data-loss bug, not a hypothetical one.
+ *
+ * ExportRow keeps its convenient by-name object shape for everything that
+ * isn't repeated (every other column, in every real file). To still get a
+ * repeated column's distinct original value for EACH occurrence into the
+ * actual written sheet, recordRow additionally stashes the row's raw,
+ * positional cell values under this module-private Symbol key - invisible
+ * to Object.keys/JSON/the spread operator, so it changes nothing about
+ * ExportRow's visible shape or any existing by-name access - and
+ * sheetFromRows reads it back to build the sheet positionally (via
+ * aoa_to_sheet), which is the only representation that can losslessly
+ * reproduce two columns sharing one header text, exactly as the source file
+ * had them.
+ */
+const EXPORT_ROW_CELLS = Symbol('exportRowCells')
+
+interface ExportRowCells {
+  headers: string[]
+  cells: (CellValue | string | number)[]
+}
+
+function getExportRowCells(row: ExportRow): ExportRowCells | undefined {
+  return (row as unknown as Record<symbol, ExportRowCells | undefined>)[EXPORT_ROW_CELLS]
+}
+
+/**
  * Rebuilds one record's row exactly as it appeared in the source file - the
  * same columns, in the same order, with the same values (a Date cell stays
  * a real Date rather than being reformatted to text - see sheetFromRows'
- * cellDates option). A Disposition is layered on afterward, in place, by the
- * caller (recordsForStatus/allRecordsRows). The only column ever added here
- * is a trailing Source File column, and only when this export spans more
- * than one combined uploaded file (sourceFileColumn is null otherwise - see
- * resolveSourceFileColumn).
+ * cellDates option) - INCLUDING a column whose header text is repeated
+ * elsewhere in the same file (see the EXPORT_ROW_CELLS comment above: both
+ * occurrences keep their own distinct original value). A Disposition is
+ * layered on afterward, in place, by the caller (recordsForStatus/
+ * allRecordsRows) via setExportCell, which keeps both representations in
+ * sync. The only column ever added here is a trailing Source File column,
+ * and only when this export spans more than one combined uploaded file
+ * (sourceFileColumn is null otherwise - see resolveSourceFileColumn).
  */
 function recordRow(dataset: ExcelDataset, rowIndex: number, sourceFileColumn: string | null): ExportRow {
   const row: ExportRow = {}
+  const rawValues = dataset.rows[rowIndex]
+  const cellHeaders = dataset.headers.slice()
+  const cells: (CellValue | string | number)[] = rawValues.slice()
   dataset.headers.forEach((header, i) => {
-    row[header] = dataset.rows[rowIndex][i]
+    row[header] = rawValues[i]
   })
   if (sourceFileColumn) {
-    row[sourceFileColumn] = sourceFileForRow(dataset, rowIndex)?.fileName ?? ''
+    const sourceFileName = sourceFileForRow(dataset, rowIndex)?.fileName ?? ''
+    row[sourceFileColumn] = sourceFileName
+    cellHeaders.push(sourceFileColumn)
+    cells.push(sourceFileName)
   }
+  Object.defineProperty(row, EXPORT_ROW_CELLS, {
+    value: { headers: cellHeaders, cells },
+    enumerable: false,
+  })
   return row
+}
+
+/**
+ * Writes a value into one of a row's columns by name, keeping both of
+ * recordRow's representations in sync: the by-name object key (what every
+ * existing reader of an ExportRow uses) and the positional cell actually
+ * written into the final sheet (see sheetFromRows). Targets the FIRST
+ * column matching that name, same as every other fixed-name lookup in this
+ * file (cellAt, isRecordExportEligible) - Add Action/Add Comments have never
+ * been observed repeated in a real file, but this keeps the behavior
+ * well-defined and consistent with the rest of the module if one ever were.
+ */
+function setExportCell(row: ExportRow, columnName: string, value: string): void {
+  row[columnName] = value
+  const rawCells = getExportRowCells(row)
+  if (!rawCells) return
+  const index = rawCells.headers.indexOf(columnName)
+  if (index !== -1) rawCells.cells[index] = value
 }
 
 /**
@@ -141,10 +211,10 @@ export function recordsForStatus(
       const row = recordRow(dataset, record.rowIndex, sourceFileColumn)
       const eligible = isRecordExportEligible(dataset, record.rowIndex)
       if (disposition && addActionColumn && eligible) {
-        row[addActionColumn] = disposition
+        setExportCell(row, addActionColumn, disposition)
       }
       if (comment && addCommentsColumn && eligible) {
-        row[addCommentsColumn] = comment
+        setExportCell(row, addCommentsColumn, comment)
       }
       out.push(row)
     }
@@ -194,11 +264,11 @@ export function allRecordsRows(
     const eligible = isRecordExportEligible(dataset, rowIndex)
     const disposition = dispositionByRowIndex.get(rowIndex)
     if (disposition && addActionColumn && eligible) {
-      row[addActionColumn] = disposition
+      setExportCell(row, addActionColumn, disposition)
     }
     const comment = commentByRowIndex.get(rowIndex)
     if (comment && addCommentsColumn && eligible) {
-      row[addCommentsColumn] = comment
+      setExportCell(row, addCommentsColumn, comment)
     }
     out.push(row)
   }
@@ -253,13 +323,36 @@ export function sheetSafeName(name: string): string {
   return cleaned.length > SHEET_NAME_MAX_LENGTH ? cleaned.slice(0, SHEET_NAME_MAX_LENGTH).trim() : cleaned
 }
 
+/**
+ * Turns the per-record rows into the actual SheetJS sheet. Built positionally
+ * (aoa_to_sheet: an explicit header row plus one array per record, cell-for-
+ * cell) rather than from the rows' by-name object keys, specifically so a
+ * header repeated elsewhere in the source file (see the EXPORT_ROW_CELLS
+ * comment above recordRow - a real, observed case, not hypothetical) keeps
+ * BOTH occurrences and both of their distinct original values, exactly as
+ * the source file had them, instead of one silently overwriting the other.
+ * cellDates keeps a JS Date value as a real Excel date cell instead of
+ * silently downgrading it to a plain serial number or reformatted text -
+ * part of keeping the export's format matching the source file's own.
+ */
 function sheetFromRows(rows: ExportRow[]) {
-  // cellDates keeps a JS Date value as a real Excel date cell instead of
-  // silently downgrading it to a plain serial number or reformatted text -
-  // part of keeping the export's format matching the source file's own.
-  return XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ ' ': 'No records in this category.' } as ExportRow], {
-    cellDates: true,
-  })
+  if (rows.length === 0) {
+    return XLSX.utils.json_to_sheet([{ ' ': 'No records in this category.' } as ExportRow], { cellDates: true })
+  }
+
+  const firstRowCells = getExportRowCells(rows[0])
+  if (!firstRowCells) {
+    // Defensive fallback only - every ExportRow in this app comes from
+    // recordRow, which always stashes this. Keeps this function safe (if
+    // less precise about repeated headers) for any row that somehow didn't.
+    return XLSX.utils.json_to_sheet(rows, { cellDates: true })
+  }
+
+  const aoa: (CellValue | string | number | null)[][] = [firstRowCells.headers]
+  for (const row of rows) {
+    aoa.push(getExportRowCells(row)?.cells ?? firstRowCells.headers.map((h) => row[h] ?? null))
+  }
+  return XLSX.utils.aoa_to_sheet(aoa, { cellDates: true })
 }
 
 function appendSheet(wb: XLSX.WorkBook, rows: ExportRow[], name: string) {
@@ -269,8 +362,12 @@ function appendSheet(wb: XLSX.WorkBook, rows: ExportRow[], name: string) {
 /**
  * Builds the appropriate SheetJS workbook in memory for one export option.
  * Every option is a single sheet that mirrors the source Excel file's own
- * columns exactly - nothing added, nothing renamed, no extra sheets - except
- * that a recorded Disposition/Comment (session-only, groupId -> value - see
+ * columns exactly - nothing added, nothing renamed, no extra sheets, and a
+ * column whose header text repeats elsewhere in the same file (every real
+ * file this app ships with has "Root Id" twice - see the EXPORT_ROW_CELLS
+ * comment above recordRow) comes back with both occurrences and both of
+ * their own original values intact, not collapsed into one - except that a
+ * recorded Disposition/Comment (session-only, groupId -> value - see
  * ValidationSessionContext) is written into the file's own "Add Action" /
  * "Add Comments" columns where they exist (see findAddActionColumn,
  * findAddCommentsColumn):
