@@ -144,6 +144,8 @@ export function Results() {
                   result={outcome.result}
                   dispositions={dispositions.get(def.id) ?? EMPTY_DISPOSITIONS}
                   comments={comments.get(def.id) ?? EMPTY_COMMENTS}
+                  ruleAnalysis={def.metadata?.analysis}
+                  ruleFallbackName={def.fileName}
                 />
               </div>
 

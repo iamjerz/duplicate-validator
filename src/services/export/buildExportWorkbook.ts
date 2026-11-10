@@ -9,7 +9,7 @@ const AUDIT_ID_FIELD = 'Audit ID'
 const AUDIT_STATUS_FIELD = 'Audit Exception Status'
 const REQUIRED_STATUS = 'open'
 
-export type ExportKind = 'duplicates' | 'potential-duplicates' | 'unique' | 'complete'
+export type ExportKind = 'duplicates' | 'potential-duplicates' | 'flagged' | 'unique' | 'complete'
 
 type ExportRow = Record<string, CellValue | string | number>
 
@@ -205,6 +205,54 @@ export function allRecordsRows(
   return out
 }
 
+/**
+ * Builds the per-record rows for every flagged (non-UNIQUE) group together -
+ * DUPLICATE and POTENTIAL_DUPLICATE combined into one list, in that order.
+ * Exists for the same reason the Results table's Status column, filter
+ * checkboxes, and KPI cards/chart already collapse that same raw
+ * distinction into one rule-driven label (see resolveDuplicateTypeLabel in
+ * DuplicateTypeClassification.ts): every flagged row under one rule already
+ * shows that SAME label there, so an export still split into two separate
+ * "Duplicate Records"/"Potential Duplicates" files no longer corresponds to
+ * anything a reviewer can tell apart on screen. Reuses recordsForStatus for
+ * each raw status and concatenates, so the per-record
+ * disposition/comment/eligibility logic can never drift between the two -
+ * this is purely a grouping convenience on top of it. Exported for direct
+ * testing (see buildExportWorkbook.test.ts).
+ */
+export function recordsForFlagged(
+  dataset: ExcelDataset,
+  groups: DuplicateGroup[],
+  dispositions: Map<string, Disposition>,
+  comments: Map<string, string> = new Map()
+): ExportRow[] {
+  return [
+    ...recordsForStatus(dataset, groups, 'DUPLICATE', dispositions, comments),
+    ...recordsForStatus(dataset, groups, 'POTENTIAL_DUPLICATE', dispositions, comments),
+  ]
+}
+
+const SHEET_NAME_MAX_LENGTH = 31
+const INVALID_SHEET_NAME_CHARS = /[:\\/?*[\]]/g
+
+/**
+ * Excel sheet (tab) names can't exceed 31 characters and can't contain
+ * : \ / ? * [ ] - every sheet name this app has ever used was either a short
+ * static string ("Duplicate Records", "Unique Records", ...) or the
+ * original uploaded sheet name (already valid, since it came from an Excel
+ * file), so this was never a concern before. The 'flagged' export's sheet
+ * name is now a rule's own label instead (see buildExportWorkbook), whose
+ * fallback is literally the rule's uploaded file name (e.g. "True DUP_SHIP -
+ * corrected.json Records") - easily long enough, or containing characters,
+ * to violate either rule. Replaces invalid characters with a space and
+ * truncates from the end (keeping the more identifying start of the name)
+ * rather than letting SheetJS error or silently mangle it.
+ */
+export function sheetSafeName(name: string): string {
+  const cleaned = name.replace(INVALID_SHEET_NAME_CHARS, ' ').trim()
+  return cleaned.length > SHEET_NAME_MAX_LENGTH ? cleaned.slice(0, SHEET_NAME_MAX_LENGTH).trim() : cleaned
+}
+
 function sheetFromRows(rows: ExportRow[]) {
   // cellDates keeps a JS Date value as a real Excel date cell instead of
   // silently downgrading it to a plain serial number or reformatted text -
@@ -227,7 +275,17 @@ function appendSheet(wb: XLSX.WorkBook, rows: ExportRow[], name: string) {
  * "Add Comments" columns where they exist (see findAddActionColumn,
  * findAddCommentsColumn):
  *  - 'duplicates' / 'potential-duplicates' / 'unique': just that status's
- *    records, under a descriptive tab name.
+ *    records, under a descriptive tab name. Kept around (and still fully
+ *    functional) for anything that still wants the raw per-status split,
+ *    but ExportMenu no longer surfaces 'duplicates'/'potential-duplicates'
+ *    as separate choices - see 'flagged' below.
+ *  - 'flagged': DUPLICATE and POTENTIAL_DUPLICATE combined (see
+ *    recordsForFlagged), under `flaggedSheetName` - the rule-driven label
+ *    ExportMenu resolves via resolveDuplicateTypeLabel, the same one the
+ *    Results table's Status column/checkboxes/KPI cards already use for
+ *    this rule, sanitized for use as an Excel sheet name (see
+ *    sheetSafeName). Defaults to 'Duplicate Records' when the caller
+ *    doesn't pass one (e.g. a direct/test call).
  *  - 'complete': every original record, unfiltered and in the file's own
  *    order, under the file's own original sheet name - this is the whole
  *    file back, not a multi-tab analysis report (see allRecordsRows).
@@ -237,7 +295,8 @@ export function buildExportWorkbook(
   result: ValidationResult,
   kind: ExportKind,
   dispositions: Map<string, Disposition> = new Map(),
-  comments: Map<string, string> = new Map()
+  comments: Map<string, string> = new Map(),
+  flaggedSheetName: string = 'Duplicate Records'
 ): XLSX.WorkBook {
   const wb = XLSX.utils.book_new()
 
@@ -251,6 +310,10 @@ export function buildExportWorkbook(
       recordsForStatus(dataset, result.groups, 'POTENTIAL_DUPLICATE', dispositions, comments),
       'Potential Duplicates'
     )
+    return wb
+  }
+  if (kind === 'flagged') {
+    appendSheet(wb, recordsForFlagged(dataset, result.groups, dispositions, comments), sheetSafeName(flaggedSheetName))
     return wb
   }
   if (kind === 'unique') {

@@ -5,10 +5,12 @@ import {
   findAddCommentsColumn,
   isRecordExportEligible,
   recordsForStatus,
+  recordsForFlagged,
   allRecordsRows,
   buildExportWorkbook,
   exportFileBaseName,
   resolveSourceFileColumn,
+  sheetSafeName,
 } from '../buildExportWorkbook'
 import { runDuplicateValidation, buildRuleSet, buildColumnMapping } from '@/engine'
 import type { CellValue, Disposition, ExcelDataset, RuleSet, SourceFileSummary, ValidationResult } from '@/types'
@@ -345,6 +347,105 @@ describe('recordsForStatus', () => {
   })
 })
 
+describe('recordsForFlagged', () => {
+  const headers = ['Root Id', 'Invoice Number', 'Invoice Amount', 'Audit ID', 'Audit Exception Status', 'Add Action', 'Add Comments']
+
+  // A UNIQUE field (Invoice Amount) is what lets a real POTENTIAL_DUPLICATE
+  // group form at all (see DuplicateClassifier - a differing UNIQUE field is
+  // what downgrades DUPLICATE to POTENTIAL_DUPLICATE; a differing OPTIONAL
+  // field never does). recordsForStatus's own fixture (Root Id/Invoice
+  // Number/Client Code, all SAME) has no UNIQUE field, so it can only ever
+  // produce DUPLICATE groups. A dedicated rule set here is what actually
+  // exercises the "combines both raw statuses" behavior this function exists
+  // for.
+  function runWithUniqueAmount(rows: CellValue[][]): { result: ValidationResult } {
+    const rules = { 'Root Id': 'SAME', 'Invoice Number': 'SAME', 'Invoice Amount': 'UNIQUE' }
+    const built = buildRuleSet(Object.entries(rules).map(([field, value]) => ({ field, value })))
+    const ruleSet = built.ruleSet as RuleSet
+    const mapping = buildColumnMapping(ruleSet, headers).entries
+    const excelRowNumbers = rows.map((_, i) => i + 2)
+    const result = runDuplicateValidation({ headers, rows, excelRowNumbers, ruleSet, mapping })
+    return { result }
+  }
+
+  // Rows 0/1: exact duplicate (same Invoice Amount) -> DUPLICATE.
+  // Rows 2/3: same Root Id/Invoice Number but a differing UNIQUE Invoice
+  // Amount -> POTENTIAL_DUPLICATE.
+  // Row 4: unrelated Root Id/Invoice Number -> UNIQUE, never a "group" with 2+ records.
+  const rows: CellValue[][] = [
+    ['1', 'INV-1', '100', 'A-1', 'Open', 'Pending', 'N/A'],
+    ['1', 'INV-1', '100', 'A-2', 'Open', 'Pending', 'N/A'],
+    ['2', 'INV-2', '100', 'A-3', 'Open', 'Pending', 'N/A'],
+    ['2', 'INV-2', '200', 'A-4', 'Open', 'Pending', 'N/A'],
+    ['3', 'INV-3', '300', 'A-5', 'Open', 'Pending', 'N/A'],
+  ]
+
+  it('combines DUPLICATE and POTENTIAL_DUPLICATE records together, excluding UNIQUE', () => {
+    const dataset = datasetFrom(headers, rows)
+    const { result } = runWithUniqueAmount(rows)
+    expect(result.groups.map((g) => g.status)).toContain('DUPLICATE')
+    expect(result.groups.map((g) => g.status)).toContain('POTENTIAL_DUPLICATE')
+
+    const flagged = recordsForFlagged(dataset, result.groups, new Map())
+    expect(flagged).toHaveLength(4)
+    expect(flagged.map((r) => r['Audit ID'])).toEqual(['A-1', 'A-2', 'A-3', 'A-4'])
+  })
+
+  it('applies a recorded disposition/comment to a group of either raw status, same as recordsForStatus', () => {
+    const dataset = datasetFrom(headers, rows)
+    const { result } = runWithUniqueAmount(rows)
+    const dupGroup = result.groups.find((g) => g.status === 'DUPLICATE')
+    const potGroup = result.groups.find((g) => g.status === 'POTENTIAL_DUPLICATE')
+    expect(dupGroup).toBeTruthy()
+    expect(potGroup).toBeTruthy()
+
+    const dispositions = new Map<string, Disposition>([
+      [dupGroup!.id, 'Reject Invoice'],
+      [potGroup!.id, 'Carrier Review'],
+    ])
+    const comments = new Map<string, string>([[potGroup!.id, 'Awaiting carrier response.']])
+
+    const flagged = recordsForFlagged(dataset, result.groups, dispositions, comments)
+    expect(flagged.find((r) => r['Audit ID'] === 'A-1')?.['Add Action']).toBe('Reject Invoice')
+    expect(flagged.find((r) => r['Audit ID'] === 'A-3')?.['Add Action']).toBe('Carrier Review')
+    expect(flagged.find((r) => r['Audit ID'] === 'A-3')?.['Add Comments']).toBe('Awaiting carrier response.')
+  })
+
+  it('returns an empty array when nothing is flagged', () => {
+    const uniqueOnlyRows: CellValue[][] = [['1', 'INV-1', '100', 'A-1', 'Open', 'Pending', 'N/A']]
+    const dataset = datasetFrom(headers, uniqueOnlyRows)
+    const { result } = runWithUniqueAmount(uniqueOnlyRows)
+    expect(recordsForFlagged(dataset, result.groups, new Map())).toEqual([])
+  })
+})
+
+describe('sheetSafeName', () => {
+  it('returns a short, valid name unchanged', () => {
+    expect(sheetSafeName('True Duplicate Records')).toBe('True Duplicate Records')
+  })
+
+  it('replaces characters Excel forbids in a sheet name with a space', () => {
+    expect(sheetSafeName('A:B/C\\D?E*F[G]H')).toBe('A B C D E F G H')
+  })
+
+  it('truncates to at most 31 characters, keeping the start of the name', () => {
+    const long = 'True DUP_SHIP - corrected.json Records'
+    expect(long.length).toBeGreaterThan(31)
+    const result = sheetSafeName(long)
+    // Trimmed after truncation, so a cut that lands exactly on a space (as
+    // it does here) can leave it a character or two under 31 - the
+    // important thing is it never exceeds the limit, and it's still a
+    // prefix of the original (plus trimming).
+    expect(result.length).toBeLessThanOrEqual(31)
+    expect(result).toBe(long.slice(0, 31).trim())
+  })
+
+  it('trims whitespace left over after truncation or character replacement', () => {
+    const result = sheetSafeName('Some Rule File Name That Is Exactly Too Long For Excel.json')
+    expect(/\s$/.test(result)).toBe(false)
+  })
+})
+
 describe('allRecordsRows', () => {
   const headers = ['Root Id', 'Invoice Number', 'Client Code', 'Audit ID', 'Audit Exception Status', 'Add Action', 'Add Comments']
   // Row 0/1: a duplicate pair, both export-eligible. Row 2: unique on its
@@ -507,6 +608,48 @@ describe('buildExportWorkbook', () => {
     expect(exported.every((r) => r['Add Action'] === 'Trax Review')).toBe(true)
     expect(exported.every((r) => r['Add Comments'] === 'Verified with shipper.')).toBe(true)
     expect(exported.every((r) => !('Group ID' in r) && !('Status' in r) && !('Excel Row' in r))).toBe(true)
+  })
+
+  it('wires recordsForFlagged into one combined sheet, named after the passed label and sanitized for Excel', () => {
+    const headers = ['Root Id', 'Invoice Number', 'Invoice Amount', 'Audit ID', 'Audit Exception Status', 'Add Action']
+    const rows: CellValue[][] = [
+      ['1', 'INV-1', '100', 'A-1', 'Open', 'Pending'], // DUPLICATE pair
+      ['1', 'INV-1', '100', 'A-2', 'Open', 'Pending'],
+      ['2', 'INV-2', '100', 'A-3', 'Open', 'Pending'], // POTENTIAL_DUPLICATE pair (Invoice Amount differs)
+      ['2', 'INV-2', '200', 'A-4', 'Open', 'Pending'],
+      ['3', 'INV-3', '300', 'A-5', 'Open', 'Pending'], // unique - must not appear
+    ]
+    const dataset = datasetFrom(headers, rows)
+    const rules = { 'Root Id': 'SAME', 'Invoice Number': 'SAME', 'Invoice Amount': 'UNIQUE' }
+    const built = buildRuleSet(Object.entries(rules).map(([field, value]) => ({ field, value })))
+    const ruleSet = built.ruleSet as RuleSet
+    const mapping = buildColumnMapping(ruleSet, headers).entries
+    const result = runDuplicateValidation({ headers, rows, excelRowNumbers: rows.map((_, i) => i + 2), ruleSet, mapping })
+
+    // A long, Excel-unsafe label (as a rule's own file name fallback could produce).
+    const label = 'True Duplicate: Invoice-Level Rule [v2]/Export'
+    const wb = buildExportWorkbook(dataset, result, 'flagged', new Map(), new Map(), label)
+    expect(wb.SheetNames).toHaveLength(1)
+    const sheetName = wb.SheetNames[0]
+    expect(sheetName.length).toBeLessThanOrEqual(31)
+    expect(/[:\\/?*[\]]/.test(sheetName)).toBe(false)
+
+    const sheet = wb.Sheets[sheetName]
+    const exported = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet!)
+    expect(exported).toHaveLength(4)
+    expect(exported.map((r) => r['Audit ID'])).toEqual(['A-1', 'A-2', 'A-3', 'A-4'])
+  })
+
+  it('defaults the flagged sheet name to "Duplicate Records" when no label is passed', () => {
+    const headers = ['Root Id', 'Invoice Number', 'Client Code', 'Audit ID', 'Audit Exception Status', 'Add Action', 'Add Comments']
+    const duplicateRows: CellValue[][] = [
+      ['12345', 'INV-001', 'ABC', 'A-1', 'Open', 'Pending', 'N/A'],
+      ['12345', 'INV-001', 'ABC', 'A-2', 'Open', 'Pending', 'N/A'],
+    ]
+    const dataset = datasetFrom(headers, duplicateRows)
+    const { result } = runValidation(headers, duplicateRows)
+    const wb = buildExportWorkbook(dataset, result, 'flagged', new Map(), new Map())
+    expect(wb.SheetNames).toEqual(['Duplicate Records'])
   })
 
   it('builds the complete report as a single sheet, under the original sheet name, with every original record and comment', () => {
